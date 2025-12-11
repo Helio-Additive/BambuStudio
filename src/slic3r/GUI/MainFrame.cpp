@@ -36,6 +36,7 @@
 #include "I18N.hpp"
 #include "GLCanvas3D.hpp"
 #include "Plater.hpp"
+#include "BackgroundSlicingProcess.hpp"
 #include "WebViewDialog.hpp"
 #include "../Utils/Process.hpp"
 #include "format.hpp"
@@ -48,6 +49,7 @@
 
 #include <fstream>
 #include <string_view>
+#include <cmath>
 
 #include "GUI_App.hpp"
 #include "UnsavedChangesDialog.hpp"
@@ -237,6 +239,14 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_
 		set_title_colour_after_set_title(GetHandle());
 		m_reset_title_text_colour_timer->Stop();
 	});
+#endif
+
+	
+	// Bind to slicing and Helio completion events from Plater
+	if (m_plater) {
+		m_plater->Bind(EVT_HELIO_PROCESSING_COMPLETED, &MainFrame::on_helio_processing_complete, this);
+	}
+#ifdef __APPLE__
 	this->Bind(wxEVT_FULLSCREEN, [this](wxFullScreenEvent& e) {
 		set_tag_when_enter_full_screen(e.IsFullScreen());
 		if (!e.IsFullScreen()) {
@@ -1710,6 +1720,10 @@ wxBoxSizer* MainFrame::create_side_tools()
 
     if (wxGetApp().app_config->get("helio_enable") == "true") {
         expand_program_holder->ShowExpandButton(expand_helio_id, true);
+        // Reduce tooltip delay for more impactful popover (default is typically 500ms, reduce to 200ms)
+        wxToolTip::SetDelay(200);
+        expand_program_holder->SetExpandButtonTooltip(expand_helio_id, _L("A faster, stronger more reliable print with Helio Additive"));
+        // Note: We keep the reduced delay for all tooltips to make Helio popover more noticeable
     }
     else {
         expand_program_holder->ShowExpandButton(expand_helio_id, false);
@@ -2331,7 +2345,8 @@ void MainFrame::update_slice_print_status(SlicePrintEventType event, bool can_sl
 
     /*for healio*/
     if (expand_program_holder) {
-        expand_program_holder->updateExpandButtonBitmap(expand_helio_id, m_print_enable?"helio_icon":"helio_icon_disable");
+        std::string icon_name = m_print_enable ? "helio_icon" : "helio_icon_disable";
+        expand_program_holder->updateExpandButtonBitmap(expand_helio_id, icon_name);
         expand_program_holder->EnableExpandButton(expand_helio_id, m_print_enable);
     }
 
@@ -2339,6 +2354,90 @@ void MainFrame::update_slice_print_status(SlicePrintEventType event, bool can_sl
     if (!old_slice_status && enable_slice)
         m_plater->stop_helio_process();
         m_plater->reset_check_status();
+}
+
+void MainFrame::update_helio_icon_color(const std::string& color)
+{
+    // Update the state flags based on color
+    if (color == "#00FF00" || color == "#00ff00" || color == "#00AE42") {
+        m_helio_icon_green = true;
+        m_helio_icon_red = false;
+    } else if (color == "#FF0000" || color == "#ff0000") {
+        m_helio_icon_red = true;
+        m_helio_icon_green = false;
+    } else {
+        // Empty or other color = reset to normal
+        m_helio_icon_red = false;
+        m_helio_icon_green = false;
+    }
+    
+    if (expand_program_holder) {
+        std::string icon_name;
+        if (!m_print_enable) {
+            icon_name = "helio_icon_disable";
+        } else {
+            icon_name = "helio_icon";
+        }
+        expand_program_holder->updateExpandButtonBitmap(expand_helio_id, icon_name);
+        
+        // Adjust background color of the button holder to draw attention based on state
+        if (expand_program_holder->IsShown() && m_print_enable) {
+            bool is_dark = wxGetApp().dark_mode();
+            wxColour holder_bg_color;
+            
+            if (m_helio_icon_green) {
+                // Green tint for optimization complete
+                if (is_dark) {
+                    holder_bg_color = wxColour("#2F3D38"); // Green-tinted dark mode
+                } else {
+                    holder_bg_color = wxColour("#E8F5E9"); // Light green tint light mode
+                }
+            } else if (m_helio_icon_red) {
+                // Red tint for slicing complete
+                if (is_dark) {
+                    holder_bg_color = wxColour("#3D2F2F"); // Red-tinted dark mode
+                } else {
+                    holder_bg_color = wxColour("#FFEBEE"); // Light red tint light mode
+                }
+            } else {
+                // Normal state - use default background color (same as ExpandButtonHolder constructor)
+                if (is_dark) {
+#ifdef __APPLE__
+                    holder_bg_color = wxColour("#2D2D30");
+#else
+                    holder_bg_color = wxColour("#3B4446");
+#endif
+                } else {
+                    // Light mode - use a light grey that matches the toolbar
+                    holder_bg_color = wxColour("#F0F0F0");
+                }
+            }
+            
+            if (holder_bg_color.IsOk()) {
+                expand_program_holder->SetBackgroundColour(holder_bg_color);
+                expand_program_holder->Refresh();
+                expand_program_holder->Update();
+            }
+        } else if (!m_print_enable) {
+            // Reset to default when disabled
+            bool is_dark = wxGetApp().dark_mode();
+            wxColour default_bg;
+            if (is_dark) {
+#ifdef __APPLE__
+                default_bg = wxColour("#2D2D30");
+#else
+                default_bg = wxColour("#3B4446");
+#endif
+            } else {
+                default_bg = wxColour("#F0F0F0");
+            }
+            expand_program_holder->SetBackgroundColour(default_bg);
+            expand_program_holder->Refresh();
+            expand_program_holder->Update();
+        }
+        
+        expand_program_holder->EnableExpandButton(expand_helio_id, m_print_enable);
+    }
 }
 
 
@@ -4361,6 +4460,12 @@ void SettingsDialog::on_dpi_changed(const wxRect& suggested_rect)
     SetMinSize(size);
     Fit();
     Refresh();
+}
+
+void MainFrame::on_helio_processing_complete(HelioCompletionEvent& event)
+{
+    // Handle helio processing completion if needed
+    event.Skip();
 }
 
 

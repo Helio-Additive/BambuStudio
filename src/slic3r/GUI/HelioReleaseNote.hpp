@@ -141,6 +141,7 @@ private:
 
     wxPanel* advanced_settings_link{nullptr};
     LinkLabel* buy_now_link{nullptr};
+    Button* buy_now_button{nullptr};
     LinkLabel* helio_wiki_link{nullptr};
 
     int current_action{-1}; //0-simulation 1-optimization

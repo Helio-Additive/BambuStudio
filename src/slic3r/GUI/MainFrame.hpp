@@ -43,6 +43,8 @@ class wxBookCtrlBase;
 class wxProgressDialog;
 
 namespace Slic3r {
+class SlicingProcessCompletedEvent;
+class HelioCompletionEvent;
 
 namespace GUI
 {
@@ -412,11 +414,16 @@ public:
     FilamentGroupPopup* m_filament_group_popup{ nullptr };
     mutable bool          m_slice_enable{ true };
     mutable bool          m_print_enable{ true };
+    bool                  m_helio_icon_red{ false }; // Track if Helio icon should be red
+    bool                  m_helio_icon_green{ false }; // Track if Helio icon should be green
     bool get_enable_slice_status();
     bool get_enable_print_status();
     //BBS
     void update_side_button_style();
     void update_slice_print_status(SlicePrintEventType event, bool can_slice = true, bool can_print = true);
+    void update_helio_icon_color(const std::string& color = std::string());
+    
+    void on_helio_processing_complete(HelioCompletionEvent& event);
 
     int select_device_page_count{ 0 };
 

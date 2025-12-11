@@ -9368,6 +9368,15 @@ void Plater::priv::on_slicing_completed(wxCommandEvent & evt)
         return;
     }
 
+    // Turn Helio icon red after slicing completes (use CallAfter to ensure GUI update on main thread)
+    if (wxGetApp().mainframe) {
+        wxGetApp().CallAfter([this]() {
+            if (wxGetApp().mainframe) {
+                wxGetApp().mainframe->update_helio_icon_color("#FF0000");
+            }
+        });
+    }
+
     if (view3D->is_dragging()) // updating scene now would interfere with the gizmo dragging
         delayed_scene_refresh = true;
     else {
@@ -9733,6 +9742,10 @@ void Plater::priv::on_action_slice_plate(SimpleEvent&)
 {
     if (q != nullptr) {
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received slice plate event\n" ;
+        // Reset Helio icon to normal when slicing starts
+        if (wxGetApp().mainframe) {
+            wxGetApp().mainframe->update_helio_icon_color();
+        }
         //BBS update extruder params and speed table before slicing
         const Slic3r::DynamicPrintConfig& config = wxGetApp().preset_bundle->full_config();
         auto& print = q->get_partplate_list().get_current_fff_print();
@@ -9911,6 +9924,15 @@ void Plater::priv::on_helio_processing_complete(HelioCompletionEvent &a)
 
         this->update();
 
+        // Turn Helio icon green after optimization completes
+        if (a.action == 1 && wxGetApp().mainframe) {
+            wxGetApp().CallAfter([this]() {
+                if (wxGetApp().mainframe) {
+                    wxGetApp().mainframe->update_helio_icon_color("#00AE42");
+                }
+            });
+        }
+
         /*show rating*/
         if (a.action == 1) {
 
@@ -10051,6 +10073,10 @@ void Plater::priv::on_action_slice_all(SimpleEvent&)
     if (q != nullptr) {
         helio_background_process.reset();
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received slice project event\n" ;
+        // Reset Helio icon to normal when slicing starts
+        if (wxGetApp().mainframe) {
+            wxGetApp().mainframe->update_helio_icon_color();
+        }
         //BBS update extruder params and speed table before slicing
         const Slic3r::DynamicPrintConfig& config = wxGetApp().preset_bundle->full_config();
         auto& print = q->get_partplate_list().get_current_fff_print();

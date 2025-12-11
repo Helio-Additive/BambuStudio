@@ -367,7 +367,9 @@ CustomToggleButton::CustomToggleButton(wxWindow* parent, const wxString& label, 
 
 void CustomToggleButton::on_left_down(wxMouseEvent& e)
 {
-    SetIsSelected(true);
+    // Don't automatically set selection - let the event handler manage it
+    // This allows parent handlers to control mutual exclusivity
+    e.Skip(); // Allow event to propagate to bound handlers
 }
 
 void CustomToggleButton::SetLabel(const wxString& label) {
@@ -486,6 +488,14 @@ ExpandButton::ExpandButton(wxWindow* parent,  std::string bmp, wxWindowID id, co
     m_bmp = create_scaled_bitmap(m_bmp_str, this, 18);
     SetMinSize(wxSize(FromDIP(24), FromDIP(24)));
     SetMaxSize(wxSize(FromDIP(24), FromDIP(24)));
+    
+    // Set default background color
+#ifdef __APPLE__
+    SetBackgroundColour(wxColour("#384547"));
+#else
+    SetBackgroundColour(wxColour("#242E30"));
+#endif
+    
     Bind(wxEVT_PAINT, &ExpandButton::OnPaint, this);
     Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
@@ -496,9 +506,11 @@ ExpandButton::ExpandButton(wxWindow* parent,  std::string bmp, wxWindowID id, co
     });
 }
 
-void ExpandButton::update_bitmap(std::string bmp)
+void ExpandButton::update_bitmap(std::string bmp, const std::string& color)
 {
-    m_bmp = create_scaled_bitmap(bmp, this, 18);
+    m_bmp_str = bmp;
+    // Use color parameter if provided, otherwise use default
+    m_bmp = create_scaled_bitmap(bmp, this, 18, false, color.empty() ? std::string() : color);
     Refresh();
 }
 
@@ -574,6 +586,23 @@ void ExpandButtonHolder::addExpandButton(wxWindowID id, std::string img)
     ShowExpandButton(id, true);
 }
 
+void ExpandButtonHolder::SetExpandButtonTooltip(wxWindowID id, const wxString& tooltip)
+{
+    wxWindowList& children = this->GetChildren();
+    for (wxWindowList::iterator it = children.begin(); it != children.end(); ++it)
+    {
+        wxWindow* child = *it;
+        if (!child) continue;
+        ExpandButton* expandBtn = dynamic_cast<ExpandButton*>(child);
+        if (expandBtn != nullptr)
+        {
+            if (expandBtn->GetId() == id) {
+                expandBtn->SetToolTip(tooltip);
+            }
+        }
+    }
+}
+
 void ExpandButtonHolder::ShowExpandButton(wxWindowID id, bool show)
 {
     wxWindowList& children = this->GetChildren();
@@ -621,7 +650,7 @@ void ExpandButtonHolder::ShowExpandButton(wxWindowID id, bool show)
     Fit();
 }
 
-void ExpandButtonHolder::updateExpandButtonBitmap(wxWindowID id, std::string bitmap)
+void ExpandButtonHolder::updateExpandButtonBitmap(wxWindowID id, std::string bitmap, const std::string& color)
 {
     wxWindowList& children = this->GetChildren();
     for (wxWindowList::iterator it = children.begin(); it != children.end(); ++it)
@@ -632,8 +661,35 @@ void ExpandButtonHolder::updateExpandButtonBitmap(wxWindowID id, std::string bit
         if (expandBtn != nullptr)
         {
             if (expandBtn->GetId() == id) {
-                expandBtn->update_bitmap(bitmap);
+                expandBtn->update_bitmap(bitmap, color);
             }   
+        }
+    }
+}
+
+void ExpandButtonHolder::SetExpandButtonBackgroundColor(wxWindowID id, const wxColour& color)
+{
+    if (!this) return;
+    
+    // Only set background color if the window is shown and ready
+    if (!IsShown() || !color.IsOk()) return;
+    
+    wxWindowList& children = this->GetChildren();
+    for (wxWindowList::iterator it = children.begin(); it != children.end(); ++it)
+    {
+        wxWindow* child = *it;
+        if (!child) continue;
+        ExpandButton* expandButton = dynamic_cast<ExpandButton*>(child);
+        if (expandButton != nullptr)
+        {
+            if (expandButton->GetId() == id) {
+                expandButton->SetBackgroundColour(color);
+                // Only refresh if shown to avoid issues during initialization
+                if (expandButton->IsShown()) {
+                    expandButton->Refresh();
+                }
+                break; // Found the button, no need to continue
+            }
         }
     }
 }
@@ -721,13 +777,18 @@ void ExpandButtonHolder::doRender(wxDC& dc)
     wxSize size = GetSize();
     
     if (GetAvailable() > 1) {
+        // Use the actual background color set on the window
+        wxColour bg_color = GetBackgroundColour();
+        if (!bg_color.IsOk()) {
+            // Fallback to default if not set
 #ifdef __APPLE__
-        dc.SetBrush(wxBrush(wxColour("#384547")));
-        dc.SetPen(wxPen(wxColour("#384547")));
+            bg_color = wxColour("#384547");
 #else
-        dc.SetBrush(wxBrush(wxColour("#242E30")));
-        dc.SetPen(wxPen(wxColour("#242E30")));
+            bg_color = wxColour("#242E30");
 #endif
+        }
+        dc.SetBrush(wxBrush(bg_color));
+        dc.SetPen(wxPen(bg_color));
         dc.DrawRoundedRectangle(0, 0, size.x, size.y, FromDIP(10));
     }
 }

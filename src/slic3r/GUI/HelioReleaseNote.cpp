@@ -12,6 +12,7 @@
 #include "Widgets/ProgressDialog.hpp"
 #include "Widgets/RoundedRectangle.hpp"
 #include "Widgets/StaticBox.hpp"
+#include "Widgets/StaticLine.hpp"
 #include "Widgets/WebView.hpp"
 #include "Widgets/SwitchButton.hpp"
 #include "slic3r/GUI/GCodeRenderer/BaseRenderer.hpp"
@@ -668,8 +669,24 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     line->SetBackgroundColour(wxColour(166, 169, 170));
 
     wxBoxSizer* control_sizer = new wxBoxSizer(wxHORIZONTAL);
-    togglebutton_simulate = new CustomToggleButton(this, _L("Simulation"));
-    togglebutton_optimize = new CustomToggleButton(this, _L("Optimization"));
+    
+    // Create container for both button groups
+    wxPanel* toggle_container = new wxPanel(this);
+    toggle_container->SetBackgroundColour(GetBackgroundColour());
+    wxBoxSizer* toggle_sizer = new wxBoxSizer(wxHORIZONTAL);
+    
+    // Create vertical containers for each button + subtitle pair
+    wxBoxSizer* simulation_vsizer = new wxBoxSizer(wxVERTICAL);
+    wxBoxSizer* optimization_vsizer = new wxBoxSizer(wxVERTICAL);
+    
+    // Create buttons in their own panels for proper grouping
+    wxPanel* simulation_panel = new wxPanel(toggle_container);
+    simulation_panel->SetBackgroundColour(GetBackgroundColour());
+    wxPanel* optimization_panel = new wxPanel(toggle_container);
+    optimization_panel->SetBackgroundColour(GetBackgroundColour());
+    
+    togglebutton_simulate = new CustomToggleButton(simulation_panel, _L("Simulation"));
+    togglebutton_optimize = new CustomToggleButton(optimization_panel, _L("Optimization"));
 
     togglebutton_simulate->set_primary_colour(wxColour("#AF7CFF"));
     togglebutton_simulate->set_secondary_colour(wxColour("#F5EEFF"));
@@ -679,14 +696,60 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     togglebutton_optimize->set_secondary_colour(wxColour("#F5EEFF"));
     togglebutton_optimize->SetSelectedIcon("helio_switch_send_mode_tag_on");
 
-    togglebutton_simulate->SetMinSize(wxSize(FromDIP(124), FromDIP(30)));
-    togglebutton_optimize->SetMinSize(wxSize(FromDIP(124), FromDIP(30)));
-    control_sizer->Add(togglebutton_simulate, 0, wxCENTER, 0);
-    control_sizer->Add(0, 0, 0, wxLEFT, FromDIP(10));
-    control_sizer->Add(togglebutton_optimize, 0, wxCENTER, 0);
+    // Set button sizes - ensure both are exactly the same size
+    wxSize button_size = wxSize(FromDIP(124), FromDIP(30));
+    togglebutton_simulate->SetMinSize(button_size);
+    togglebutton_simulate->SetMaxSize(button_size);
+    togglebutton_optimize->SetMinSize(button_size);
+    togglebutton_optimize->SetMaxSize(button_size);
 
     togglebutton_simulate->Bind(wxEVT_LEFT_DOWN, &HelioInputDialog::on_selected_simulation, this);
     togglebutton_optimize->Bind(wxEVT_LEFT_DOWN, &HelioInputDialog::on_selected_optimaztion, this);
+
+    // Add subtitles for Simulation and Optimization tabs
+    Label* subtitle_simulation = new Label(simulation_panel, _L("See where it will fail (map)"));
+    subtitle_simulation->SetForegroundColour(wxColour(144, 144, 144));
+    subtitle_simulation->SetFont(Label::Body_12);
+    subtitle_simulation->Wrap(FromDIP(124)); // Wrap text to button width
+    
+    Label* subtitle_optimization = new Label(optimization_panel, _L("Automatically fix with new speeds (autopilot)"));
+    subtitle_optimization->SetForegroundColour(wxColour(144, 144, 144));
+    subtitle_optimization->SetFont(Label::Body_12);
+    subtitle_optimization->Wrap(FromDIP(124)); // Wrap text to button width
+
+    // Build simulation button group
+    wxBoxSizer* simulation_panel_sizer = new wxBoxSizer(wxVERTICAL);
+    simulation_panel_sizer->Add(togglebutton_simulate, 0, wxALIGN_CENTER_HORIZONTAL | wxEXPAND, 0);
+    simulation_panel_sizer->AddSpacer(FromDIP(6));
+    simulation_panel_sizer->Add(subtitle_simulation, 0, wxALIGN_CENTER_HORIZONTAL, 0);
+    simulation_panel->SetSizer(simulation_panel_sizer);
+    
+    // Build optimization button group
+    wxBoxSizer* optimization_panel_sizer = new wxBoxSizer(wxVERTICAL);
+    optimization_panel_sizer->Add(togglebutton_optimize, 0, wxALIGN_CENTER_HORIZONTAL | wxEXPAND, 0);
+    optimization_panel_sizer->AddSpacer(FromDIP(6));
+    optimization_panel_sizer->Add(subtitle_optimization, 0, wxALIGN_CENTER_HORIZONTAL, 0);
+    optimization_panel->SetSizer(optimization_panel_sizer);
+
+    // Set both panels to have the same fixed width to ensure alignment
+    wxSize panel_size = wxSize(FromDIP(124), -1);
+    simulation_panel->SetMinSize(panel_size);
+    simulation_panel->SetMaxSize(wxSize(FromDIP(124), -1));
+    optimization_panel->SetMinSize(panel_size);
+    optimization_panel->SetMaxSize(wxSize(FromDIP(124), -1));
+
+    // Add both panels to the horizontal sizer with proper spacing and alignment
+    toggle_sizer->Add(simulation_panel, 0, wxALIGN_TOP, 0);
+    toggle_sizer->AddSpacer(FromDIP(8));
+    toggle_sizer->Add(optimization_panel, 0, wxALIGN_TOP, 0);
+    
+    toggle_container->SetSizer(toggle_sizer);
+    toggle_container->Layout();
+    
+    toggle_container->SetSizer(toggle_sizer);
+    toggle_container->Layout();
+    
+    control_sizer->Add(toggle_container, 0, wxCENTER, 0);
 
     PresetBundle* preset_bundle = wxGetApp().preset_bundle;
     auto source_model = preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle);
@@ -708,8 +771,12 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
 
     //m_input_items["chamber_temp_for_simulation"]->GetTextCtrl()->SetLabel(wxString::Format("%d", min_chamber_temp));
     m_input_items["chamber_temp_for_simulation"]->GetTextCtrl()->SetHint(wxT("5-70"));
+    // Add tooltip for optional field
+    wxString sim_temp_tooltip = _L("Optional: if no value is entered we will estimate the temperature from the available information of the printer and gcode");
+    m_input_items["chamber_temp_for_simulation"]->GetTextCtrl()->SetToolTip(sim_temp_tooltip);
+    m_input_items["chamber_temp_for_simulation"]->SetToolTip(sim_temp_tooltip);
 
-    Label* sub_simulation = new Label(panel_simulation, _L("Note: Adjust the above temperature based on actual conditions. More accurate data ensures more precise analysis results."));
+    Label* sub_simulation = new Label(panel_simulation, _L("Optional. More accurate data ensures better results."));
     sub_simulation->SetForegroundColour(wxColour(144, 144, 144));
     sub_simulation->SetSize(wxSize(FromDIP(440), -1));
     sub_simulation->Wrap(FromDIP(440));
@@ -758,33 +825,95 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     }
     wxBoxSizer *sizer_optimization = new wxBoxSizer(wxVERTICAL);
 
-    m_remain_usage_time = new HelioRemainUsageTime(panel_optimization, _L("Monthly quota remaining: "));
+    // Account Status Section
+    StaticLine* account_header = new StaticLine(panel_optimization, false, _L("Account Status"));
+    account_header->SetFont(Label::Head_14);
+    account_header->SetForegroundColour(wxColour("#262E30"));
+    
+    m_remain_usage_time = new HelioRemainUsageTime(panel_optimization, _L("Monthly quota: "));
     m_remain_usage_time->UpdateRemainTime(0);
 
-    m_remain_purchased_time = new HelioRemainUsageTime(panel_optimization, _L("Add-ons available: "));
+    m_remain_purchased_time = new HelioRemainUsageTime(panel_optimization, _L("Add-ons: "));
     m_remain_purchased_time->UpdateRemainTime(0);
 
-    /*split line*/
-    auto split_line = new wxPanel(panel_optimization, wxID_ANY, wxDefaultPosition, wxSize(-1, 1), wxTAB_TRAVERSAL);
-    split_line->SetMaxSize(wxSize(-1, FromDIP(1)));
-    split_line->SetBackgroundColour(wxColour(236, 236, 236));
+    // Create Buy More Optimizations button as secondary/outlined button
+    StateColor btn_buy_bg_outlined(std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Hovered), 
+                                   std::pair<wxColour, int>(*wxWHITE, StateColor::Normal),
+                                   std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Pressed));
+    StateColor btn_buy_border(std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Normal));
+    StateColor btn_buy_text(std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Hovered),
+                            std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Pressed),
+                            std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Normal));
+    
+    buy_now_button = new Button(panel_optimization, _L("Buy More Optimizations"));
+    buy_now_button->SetBackgroundColor(btn_buy_bg_outlined);
+    buy_now_button->SetBorderColor(btn_buy_border);
+    buy_now_button->SetTextColor(btn_buy_text);
+    buy_now_button->SetFont(Label::Body_13);
+    buy_now_button->SetSize(wxSize(-1, FromDIP(28)));
+    buy_now_button->SetMinSize(wxSize(-1, FromDIP(28)));
+    buy_now_button->SetCornerRadius(FromDIP(12));
+    buy_now_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) {
+        // Get the URL from buy_now_link (which is set below)
+        std::string helio_api_key = Slic3r::HelioQuery::get_helio_pat();
+        if (!helio_api_key.empty()) {
+            wxString link_url;
+            if (wxGetApp().app_config->get("region") == "China") {
+                link_url = "https://store.helioam.cn?patToken=" + helio_api_key;
+            } else {
+                link_url = "https://store.helioadditive.com?patToken=" + helio_api_key;
+            }
+            wxLaunchDefaultBrowser(link_url);
+        }
+    });
+    buy_now_button->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
+    buy_now_button->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
+    buy_now_button->Hide();
 
+    // Keep Manage Account link separate (even though same as Buy More link)
+    buy_now_link = new LinkLabel(panel_optimization, _L("Manage Account"), "https://wiki.helioadditive.com/");
+    buy_now_link->SeLinkLabelFColour(wxColour(175, 124, 255));
+    buy_now_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
+    buy_now_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
+    buy_now_link->Hide();
+
+    // Environment Settings Section
+    StaticLine* env_header = new StaticLine(panel_optimization, false, _L("Environment Settings"));
+    env_header->SetFont(Label::Head_14);
+    env_header->SetForegroundColour(wxColour("#262E30"));
+    
     wxBoxSizer* chamber_temp_item_for_optimization = nullptr;
     Label* sub_optimization = nullptr;
     if (is_no_chamber) {
         chamber_temp_item_for_optimization = create_input_item(panel_optimization, "chamber_temp_for_optimization", is_no_chamber?_L("Environment Temperature"):_L("Chamber Temperature"), wxT("\u00B0C"), {chamber_temp_checker});
         m_input_items["chamber_temp_for_optimization"]->GetTextCtrl()->SetHint(wxT("5-70"));
+        // Add tooltip for optional field
+        wxString temp_tooltip = _L("Optional: if no value is entered we will estimate the temperature from the available information of the printer and gcode");
+        m_input_items["chamber_temp_for_optimization"]->GetTextCtrl()->SetToolTip(temp_tooltip);
+        m_input_items["chamber_temp_for_optimization"]->SetToolTip(temp_tooltip);
 
-        sub_optimization = new Label(panel_optimization, _L("Note: Adjust the above temperature based on actual conditions. More accurate data ensures more precise analysis results."));
+        sub_optimization = new Label(panel_optimization, _L("Optional. More accurate data ensures better results."));
         sub_optimization->SetForegroundColour(wxColour(144, 144, 144));
         sub_optimization->SetSize(wxSize(FromDIP(440), -1));
         sub_optimization->Wrap(FromDIP(440));
+    } else {
+        // For printers with chamber, show comment that filament settings will be used
+        sub_optimization = new Label(panel_optimization, _L("Uses the chamber temperature from Filament settings when available; otherwise estimates it from the build plate temperature."));
+        sub_optimization->SetForegroundColour(wxColour(144, 144, 144));
+        sub_optimization->SetFont(Label::Body_12);
+        sub_optimization->SetSize(wxSize(FromDIP(440), -1));
+        sub_optimization->Wrap(FromDIP(440));
     }
+    
+    // Optimization Settings Section
+    StaticLine* opt_header = new StaticLine(panel_optimization, false, _L("Optimization Settings"));
+    opt_header->SetFont(Label::Head_14);
+    opt_header->SetForegroundColour(wxColour("#262E30"));
 
     std::map<int, wxString> config_outerwall;
     config_outerwall[0] = _L("No");
     config_outerwall[1] = _L("Yes");
-    auto outerwall =  create_combo_item(panel_optimization, "optimiza_outerwall", _L("Optimise Outer Walls"), config_outerwall, 0);
+    auto outerwall =  create_combo_item(panel_optimization, "optimiza_outerwall", _L("Optimize Outer Walls"), config_outerwall, 0);
 
     // layers to optimize - now top-level
     auto plater = Slic3r::GUI::wxGetApp().plater();
@@ -874,18 +1003,39 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     }
     panel_advanced_option->Hide();
 
+    // Account Status Section
     sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(24));
+    sizer_optimization->Add(account_header, 0, wxEXPAND, 0);
+    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(8));
     sizer_optimization->Add(m_remain_usage_time, 0, wxEXPAND, 0);
     sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(3));
     sizer_optimization->Add(m_remain_purchased_time, 0, wxEXPAND, 0);
-    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(10));
-    sizer_optimization->Add(split_line, 0, wxEXPAND, 0);
-    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(12));
+    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(8));
+    // Buy More button and Manage Account link (secondary actions) - aligned to the right
+    wxBoxSizer* secondary_actions_sizer = new wxBoxSizer(wxHORIZONTAL);
+    secondary_actions_sizer->Add(0, 0, 1, wxEXPAND, 0); // Spacer to push buttons to the right
+    secondary_actions_sizer->Add(buy_now_link, 0, wxALIGN_CENTER_VERTICAL, 0);
+    secondary_actions_sizer->Add(0, 0, 0, wxLEFT, FromDIP(12));
+    secondary_actions_sizer->Add(buy_now_button, 0, 0, 0);
+    sizer_optimization->Add(secondary_actions_sizer, 0, wxEXPAND, 0);
+    
+    // Environment Settings Section
+    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(20));
+    sizer_optimization->Add(env_header, 0, wxEXPAND, 0);
+    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(8));
     if (is_no_chamber) {
         sizer_optimization->Add(chamber_temp_item_for_optimization, 0, wxEXPAND, 0);
-        sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(10));
+        sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(6));
+        sizer_optimization->Add(sub_optimization, 0, wxEXPAND, 0);
+    } else {
+        // For printers with chamber, show comment about using filament settings
         sizer_optimization->Add(sub_optimization, 0, wxEXPAND, 0);
     }
+    
+    // Optimization Settings Section
+    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(20));
+    sizer_optimization->Add(opt_header, 0, wxEXPAND, 0);
+    sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(8));
     sizer_optimization->Add(outerwall, 0, wxEXPAND, 0);
     sizer_optimization->Add(0, 0, 0, wxTOP, FromDIP(12));
     sizer_optimization->Add(layers_to_optimize_item, 0, wxEXPAND, 0);
@@ -936,12 +1086,6 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     last_tid_panel->Layout();
     last_tid_panel->Fit();
 
-    buy_now_link = new LinkLabel(this, _L("Buy Now / Manage Account"), "https://wiki.helioadditive.com/");
-    buy_now_link->SeLinkLabelFColour(wxColour(175, 124, 255));
-    buy_now_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
-    buy_now_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
-    buy_now_link->Hide();
-
     /*set buy url*/
     std::string helio_api_key = Slic3r::HelioQuery::get_helio_pat();
     if (helio_api_key.empty()) return;
@@ -961,18 +1105,21 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
 
-    /*confirm*/
+    /*Primary action button - Start Optimization/Simulation*/
     wxBoxSizer* button_sizer = new wxBoxSizer(wxHORIZONTAL);
-    StateColor btn_bg_green( std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Enabled), std::pair<wxColour, int>(wxColour(238, 238, 238), StateColor::Disabled), std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Pressed), std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Hovered),
-        std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+    StateColor btn_primary_bg(std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Enabled), 
+                              std::pair<wxColour, int>(wxColour(238, 238, 238), StateColor::Disabled), 
+                              std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Pressed), 
+                              std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Hovered),
+                              std::pair<wxColour, int>(wxColour(175, 124, 255), StateColor::Normal));
 
-    m_button_confirm = new Button(this, _L("Confirm"));
-    m_button_confirm->SetBackgroundColor(btn_bg_green);
+    m_button_confirm = new Button(this, _L("Start Optimization"));
+    m_button_confirm->SetBackgroundColor(btn_primary_bg);
     m_button_confirm->SetBorderColor(*wxWHITE);
     m_button_confirm->SetTextColor(wxColour(255, 255, 254));
-    m_button_confirm->SetFont(Label::Body_12);
-    m_button_confirm->SetSize(wxSize(-1, FromDIP(24)));
-    m_button_confirm->SetMinSize(wxSize(-1, FromDIP(24)));
+    m_button_confirm->SetFont(Label::Body_13);
+    m_button_confirm->SetSize(wxSize(-1, FromDIP(32))); // Primary button - larger
+    m_button_confirm->SetMinSize(wxSize(-1, FromDIP(32)));
     m_button_confirm->SetCornerRadius(FromDIP(12));
     m_button_confirm->Bind(wxEVT_LEFT_DOWN, &HelioInputDialog::on_confirm, this);
     m_button_confirm->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
@@ -980,7 +1127,6 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
 
     button_sizer->Add(0, 0, 1, wxEXPAND, 0);
     button_sizer->Add(m_button_confirm, 0, 0, 0);
-    button_sizer->Add(0, 0, 0, wxLEFT, FromDIP(25));
 
     main_sizer->Add(line, 0, wxEXPAND, 0);
     main_sizer->Add(0, 0, 0, wxTOP, FromDIP(20));
@@ -990,15 +1136,14 @@ static constexpr int LIMITS_DROPDOWN_WIDTH = 350;
     main_sizer->Add(panel_optimization, 0,wxEXPAND | wxLEFT | wxRIGHT, FromDIP(25));
     main_sizer->Add(0, 0, 0, wxTOP, FromDIP(4));
     main_sizer->Add(last_tid_panel, 0, wxLEFT | wxRIGHT, FromDIP(25));
-    main_sizer->Add(0, 0, 0, wxTOP, FromDIP(4));
-    main_sizer->Add(buy_now_link, 0, wxLEFT | wxRIGHT, FromDIP(25));
     main_sizer->Add(0, 0, 0, wxTOP, FromDIP(8));
     main_sizer->Add(helio_wiki_link, 0, wxLEFT | wxRIGHT, FromDIP(25));
-    main_sizer->Add(0, 0, 0, wxTOP, FromDIP(11));
-    main_sizer->Add(button_sizer, 0, wxEXPAND, 0);
+    main_sizer->Add(0, 0, 0, wxTOP, FromDIP(16));
+    // Primary action button
+    main_sizer->Add(button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(25));
     main_sizer->Add(0, 0, 0, wxTOP, FromDIP(16));
 
-    update_action(0);
+    update_action(1); // Default to Optimizations tab
 
     SetSizer(main_sizer);
     Layout();
@@ -1022,6 +1167,7 @@ void HelioInputDialog::update_action(int action)
         togglebutton_optimize->SetIsSelected(false);
         panel_simulation->Show();
         buy_now_link->Hide();
+        buy_now_button->Hide();
         panel_pay_optimization->Hide();
         panel_optimization->Hide();
         m_button_confirm->Enable();
@@ -1055,11 +1201,11 @@ void HelioInputDialog::update_action(int action)
                     }
                     else {
                         if (times <= 0) {
-                            buy_now_link->setLabel(_L("Buy Now / Manage Account"));
+                            if (buy_now_button) { buy_now_button->SetLabel(_L("Buy More Optimizations")); }
                             if (m_remain_usage_time) { m_remain_usage_time->UpdateHelpTips(0); }
                         }
                         else {
-                            buy_now_link->setLabel(_L("Buy add-ons"));
+                            if (buy_now_button) { buy_now_button->SetLabel(_L("Buy More Optimizations")); }
                             if (m_remain_usage_time) { m_remain_usage_time->UpdateHelpTips(1); }
                         }
                     }
@@ -1079,6 +1225,7 @@ void HelioInputDialog::update_action(int action)
         togglebutton_optimize->SetIsSelected(true);
         panel_simulation->Hide();
         buy_now_link->Show();
+        buy_now_button->Show();
         helio_wiki_link->setLinkUrl( wxGetApp().app_config->get("language") =="zh_CN"? "https://wiki.helioadditive.com/zh/optimization/quick-start" : "https://wiki.helioadditive.com/en/optimization/quick-start");
 
         if (support_optimization == 0) {
@@ -1219,7 +1366,7 @@ wxBoxSizer* HelioInputDialog::create_combo_item(wxWindow* parent, std::string ke
 wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int layer_count)
 {
     wxBoxSizer* item_sizer = new wxBoxSizer(wxHORIZONTAL);
-    Label* inout_title = new Label(parent, Label::Body_14, _L("Layers to Optimize "));
+    Label* inout_title = new Label(parent, Label::Body_14, _L("Layers"));
     inout_title->SetFont(::Label::Body_14);
     inout_title->SetForegroundColour(wxColour("#262E30"));
 
@@ -1227,7 +1374,8 @@ wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int
     auto layer_range_checker = TextInputValChecker::CreateIntRangeChecker(0, layer_count);
     wxColour parent_bg = parent->GetBackgroundColour();
 
-    TextInput* m_layer_min_item = new TextInput(parent, wxEmptyString, wxEmptyString, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(76), -1), wxTE_PROCESS_ENTER);
+    // Equal-sized layer inputs
+    TextInput* m_layer_min_item = new TextInput(parent, wxEmptyString, wxEmptyString, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(80), -1), wxTE_PROCESS_ENTER);
     m_layer_min_item->SetBackgroundColor(input_bg);
     m_layer_min_item->GetTextCtrl()->SetWindowStyleFlag(wxBORDER_NONE | wxTE_PROCESS_ENTER);
     m_layer_min_item->GetTextCtrl()->SetBackgroundColour(parent_bg);
@@ -1244,7 +1392,7 @@ wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int
     m_layer_min_item->GetTextCtrl()->SetLabel("2");
     m_layer_min_item->SetValCheckers({layer_range_checker});
 
-    TextInput* m_layer_max_item = new TextInput(parent, wxEmptyString, wxEmptyString, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(76), -1), wxTE_PROCESS_ENTER);
+    TextInput* m_layer_max_item = new TextInput(parent, wxEmptyString, wxEmptyString, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(80), -1), wxTE_PROCESS_ENTER);
     m_layer_max_item->SetBackgroundColor(input_bg);
     m_layer_min_item->GetTextCtrl()->SetWindowStyleFlag(wxBORDER_NONE | wxTE_PROCESS_ENTER);
     m_layer_max_item->GetTextCtrl()->SetBackgroundColour(parent_bg);
@@ -1263,10 +1411,15 @@ wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int
 
     item_sizer->Add(inout_title, 0, wxALIGN_CENTER, 0);
     item_sizer->Add(0, 0, 1, wxEXPAND, 0);
+    // Make layer inputs equal-sized with clear spacing
+    m_layer_min_item->SetMinSize(wxSize(FromDIP(80), -1));
+    m_layer_min_item->SetMaxSize(wxSize(FromDIP(80), -1));
+    m_layer_max_item->SetMinSize(wxSize(FromDIP(80), -1));
+    m_layer_max_item->SetMaxSize(wxSize(FromDIP(80), -1));
     item_sizer->Add(m_layer_min_item);
-    item_sizer->AddSpacer(FromDIP(1));
-    item_sizer->Add(new Label(parent, Label::Body_13, "-"), 0, wxALIGN_CENTER_VERTICAL, 0);
-    item_sizer->AddSpacer(FromDIP(1));
+    item_sizer->AddSpacer(FromDIP(8));
+    item_sizer->Add(new Label(parent, Label::Body_13, _L("to")), 0, wxALIGN_CENTER_VERTICAL, 0);
+    item_sizer->AddSpacer(FromDIP(8));
     item_sizer->Add(m_layer_max_item);
 
     m_input_items.insert(std::pair<std::string, TextInput*>("layers_to_optimize_min", m_layer_min_item));

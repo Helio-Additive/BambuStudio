@@ -125,7 +125,7 @@ public:
         const wxPoint& pos = wxDefaultPosition,
         const wxSize& size = wxDefaultSize);
     
-    void update_bitmap(std::string bmp);
+    void update_bitmap(std::string bmp, const std::string& color = std::string());
     void msw_rescale();
 private:
     std::string m_bmp_str;
@@ -148,8 +148,10 @@ public:
     int GetAvailable();
     void addExpandButton(wxWindowID id, std::string img);
     void ShowExpandButton(wxWindowID id, bool show);
-    void updateExpandButtonBitmap(wxWindowID id, std::string bitmap);
+    void updateExpandButtonBitmap(wxWindowID id, std::string bitmap, const std::string& color = std::string());
+    void SetExpandButtonBackgroundColor(wxWindowID id, const wxColour& color);
     void EnableExpandButton(wxWindowID id, bool enb);
+    void SetExpandButtonTooltip(wxWindowID id, const wxString& tooltip);
 
     void msw_rescale();
 private:
