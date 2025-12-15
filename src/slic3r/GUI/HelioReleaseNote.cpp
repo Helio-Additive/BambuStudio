@@ -516,18 +516,20 @@ void HelioStatementDialog::create_pat_page()
         wxGetApp().app_config->set("helio_first_time_tutorial", "active");
         wxGetApp().app_config->save();
         
+        // Show first tutorial popup using CallAfter to ensure it executes after dialog closes
+        wxGetApp().CallAfter([]() {
+            if (wxGetApp().plater() && wxGetApp().plater()->get_notification_manager()) {
+                wxString tutorial_msg = _L("Add an object to the build plate, select a material and printer that Helio supports, then slice.\n\nSupported printers: https://wiki.helioadditive.com/en/supportedprinters");
+                wxGetApp().plater()->get_notification_manager()->push_notification(
+                    NotificationType::CustomNotification,
+                    NotificationManager::NotificationLevel::HintNotificationLevel,
+                    into_u8(tutorial_msg)
+                );
+            }
+        });
+        
         // Close this dialog
         EndModal(wxID_OK);
-        
-        // Show first tutorial popup (don't open Helio dialog immediately - let user follow tutorial steps)
-        if (wxGetApp().plater() && wxGetApp().plater()->get_notification_manager()) {
-            wxString tutorial_msg = _L("Add an object to the build plate, select a material and printer that Helio supports, then slice.\n\nSupported printers: https://wiki.helioadditive.com/en/supportedprinters");
-            wxGetApp().plater()->get_notification_manager()->push_notification(
-                NotificationType::CustomNotification,
-                NotificationManager::NotificationLevel::HintNotificationLevel,
-                into_u8(tutorial_msg)
-            );
-        }
     });
     
     // Copy PAT button - more visible with text and icon
