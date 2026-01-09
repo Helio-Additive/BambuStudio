@@ -745,12 +745,21 @@ wxMenuItem* MenuFactory::append_menu_item_change_type(wxMenu* menu)
     return append_menu_item(menu, wxID_ANY, _L("Change type"), "",
         [](wxCommandEvent&) { obj_list()->change_part_type(); }, "", menu,
         []() {
-            const Selection &selection = plater()->canvas3D()->get_selection();
-            if (selection.get_volume_idxs().size() != 1) {
+            auto has_volume_in_list = []() {
+                wxDataViewItemArray sels;
+                obj_list()->GetSelections(sels);
+                for (auto item : sels) {
+                    const auto type = obj_list()->GetModel()->GetItemType(item);
+                    if (type & itVolume)
+                        return true;
+                    if ((type & itSettings) && (obj_list()->GetModel()->GetItemType(obj_list()->GetModel()->GetParent(item)) & itVolume))
+                        return true;
+                }
                 return false;
-            }
-            wxDataViewItem item = obj_list()->GetSelection();
-            return item.IsOk() || obj_list()->GetModel()->GetItemType(item) == itVolume;
+            };
+
+            const Selection &selection = plater()->canvas3D()->get_selection();
+            return has_volume_in_list() || !selection.get_volume_idxs().empty();
         }, m_parent);
 }
 
@@ -1501,6 +1510,27 @@ void MenuFactory::create_plate_menu()
             return !plater()->get_partplate_list().get_selected_plate()->get_objects().empty() && !plater()->is_background_process_slicing();
         }, m_parent);
 
+    auto get_plate_idx = []() {
+        int plate_idx = plater()->GetPlateIndexByRightMenuInLeftUI();
+        if (plate_idx < 0)
+            plate_idx = plater()->get_partplate_list().get_curr_plate_index();
+        return plate_idx;
+    };
+
+    append_menu_item(
+        menu, wxID_ANY, _L("Expand all"), _L("Expand all objects on this plate"),
+        [get_plate_idx](wxCommandEvent&) {
+            obj_list()->expand_collapse_plate(get_plate_idx(), true);
+        },
+        "", nullptr, []() { return true; }, m_parent);
+
+    append_menu_item(
+        menu, wxID_ANY, _L("Collapse all"), _L("Collapse all objects on this plate"),
+        [get_plate_idx](wxCommandEvent&) {
+            obj_list()->expand_collapse_plate(get_plate_idx(), false);
+        },
+        "", nullptr, []() { return true; }, m_parent);
+
     // delete current plate
 #ifdef __WINDOWS__
     append_menu_item(menu, wxID_ANY, _L("Delete Plate"), _L("Remove the selected plate"),
@@ -1702,6 +1732,7 @@ wxMenu* MenuFactory::multi_selection_menu()
         append_menu_items_convert_unit(menu);
         //BBS
         append_menu_item_change_filament(menu);
+        append_menu_item_reload_from_disk(menu);
         menu->AppendSeparator();
         append_menu_item_export_stl(menu, true);
     }
@@ -1716,8 +1747,10 @@ wxMenu* MenuFactory::multi_selection_menu()
         append_menu_item_fix_through_netfabb(menu);
         //append_menu_item_simplify(menu);
         append_menu_item_delete(menu);
+        append_menu_item_change_type(menu);
         append_menu_items_convert_unit(menu);
         append_menu_item_change_filament(menu);
+        append_menu_item_reload_from_disk(menu);
         wxMenu* split_menu = new wxMenu();
         if (split_menu) {
             append_menu_item(split_menu, wxID_ANY, _L("To objects"), _L("Split the selected object into multiple objects"),
