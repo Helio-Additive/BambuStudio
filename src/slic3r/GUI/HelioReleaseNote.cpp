@@ -989,7 +989,7 @@ HelioInputDialogTheme HelioInputDialog::get_theme() const
         // Light mode palette
         theme.bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
         theme.card = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
-        theme.card2 = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
+        theme.card2 = *wxWHITE;  // White for input fields to ensure clear contrast
         theme.border = wxColour(0, 0, 0, 25);   // Subtle dark border
         theme.text = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
         theme.muted = wxColour(100, 100, 100);  // Gray for muted text
@@ -2952,7 +2952,7 @@ HelioInputDialogTheme HelioSimulationResultsDialog::get_theme() const
         // Light mode palette
         theme.bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
         theme.card = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
-        theme.card2 = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
+        theme.card2 = *wxWHITE;  // White for input fields to ensure clear contrast
         theme.border = wxColour(0, 0, 0, 25);
         theme.text = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
         theme.muted = wxColour(100, 100, 100);
@@ -3063,7 +3063,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
             auto label_improvement = wxString::Format("%s", short_time(get_time_dhms(improvement_sec)));
             auto label_original = wxString::Format("%s", short_time(get_time_dhms(m_original_print_time_seconds)));
             auto label_optimized = wxString::Format("%s", short_time(get_time_dhms(final_opt_sec)));
-            speed_impro_text = _L("Save ") + label_improvement + " (" + _L("From ") + label_original + wxString(L" \u2192 ") + label_optimized + ")";
+            speed_impro_text = _L("Time saved: ") + label_improvement + " (" + _L("From ") + label_original + wxString(L" \u2192 ") + label_optimized + ")";
         }
     }
 
@@ -3240,6 +3240,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
         wxFont opt_bold_font = optimization_value->GetFont();
         opt_bold_font.SetWeight(wxFONTWEIGHT_BOLD);
         optimization_value->SetFont(opt_bold_font);
+        optimization_value->SetToolTip(_L("This is the time that can be saved if you run the Helio Additive Enhance feature. Click the Enhance Speed and Quality button to proceed."));
         
         // Right-align the optimization text
         optimization_block_sizer->Add(0, 0, 1, wxEXPAND, 0);
