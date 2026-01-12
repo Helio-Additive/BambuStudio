@@ -3063,7 +3063,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
             auto label_improvement = wxString::Format("%s", short_time(get_time_dhms(improvement_sec)));
             auto label_original = wxString::Format("%s", short_time(get_time_dhms(m_original_print_time_seconds)));
             auto label_optimized = wxString::Format("%s", short_time(get_time_dhms(final_opt_sec)));
-            speed_impro_text = _L("Save ") + label_improvement + " (" + _L("From ") + label_original + " → " + label_optimized + ")";
+            speed_impro_text = _L("Save ") + label_improvement + " (" + _L("From ") + label_original + wxString(L" \u2192 ") + label_optimized + ")";
         }
     }
 
@@ -3104,7 +3104,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
     }
 
     // Add bullet point to analysis text
-    wxString bulleted_analysis = wxString("• ") + analysis_text;
+    wxString bulleted_analysis = wxString(L"\u2022 ") + analysis_text;
     auto label_analysis = new Label(this, Label::Body_14, bulleted_analysis);
     label_analysis->SetForegroundColour(theme.text);
     label_analysis->SetSize(wxSize(FromDIP(500), -1));
@@ -3130,7 +3130,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
         // Limit to 2 caveats max
         size_t caveat_count = std::min(m_simulation.printInfo->caveats.size(), size_t(2));
         for (size_t i = 0; i < caveat_count; ++i) {
-            auto caveat_label = new Label(this, Label::Body_14, wxString("• ") + wxString::FromUTF8(m_simulation.printInfo->caveats[i].description.c_str()));
+            auto caveat_label = new Label(this, Label::Body_14, wxString(L"\u2022 ") + wxString::FromUTF8(m_simulation.printInfo->caveats[i].description.c_str()));
             caveat_label->SetForegroundColour(theme.text);
             caveat_label->SetSize(wxSize(FromDIP(500), -1));
             caveat_label->SetMinSize(wxSize(FromDIP(500), -1));
@@ -3158,7 +3158,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
         fix_title->SetFont(fix_title_font);
         
         // Preview text shown when collapsed
-        m_fix_suggestions_preview = new Label(this, Label::Body_13, wxString(" — ") + fix_suggestions_preview);
+        m_fix_suggestions_preview = new Label(this, Label::Body_13, wxString(L" \u2014 ") + fix_suggestions_preview);
         m_fix_suggestions_preview->SetForegroundColour(theme.muted);
         
         fix_header_sizer->Add(m_fix_suggestions_arrow, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
@@ -3597,7 +3597,7 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
                 // Add extra details as bullet points
                 for (const auto& detail : fix.extraDetails) {
                     add_wrapped_label(m_advanced_content, adv_content_sizer, 
-                        wxString("• ") + wxString::FromUTF8(detail.c_str()));
+                        wxString(L"\u2022 ") + wxString::FromUTF8(detail.c_str()));
                 }
             }
             m_advanced_content->SetSizer(adv_content_sizer);
@@ -3615,7 +3615,7 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
                 // Add extra details as bullet points
                 for (const auto& detail : fix.extraDetails) {
                     add_wrapped_label(m_expert_content, exp_content_sizer, 
-                        wxString("• ") + wxString::FromUTF8(detail.c_str()));
+                        wxString(L"\u2022 ") + wxString::FromUTF8(detail.c_str()));
                 }
             }
             m_expert_content->SetSizer(exp_content_sizer);
