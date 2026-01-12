@@ -9911,6 +9911,9 @@ msgstr ""
 msgid "Time saved: "
 msgstr ""
 
+msgid "This is the time that can be saved if you run the Helio Additive Enhance feature. Click the Enhance Speed and Quality button to proceed."
+msgstr ""
+
 msgid "From "
 msgstr ""
 

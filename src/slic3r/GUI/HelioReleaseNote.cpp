@@ -3240,6 +3240,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
         wxFont opt_bold_font = optimization_value->GetFont();
         opt_bold_font.SetWeight(wxFONTWEIGHT_BOLD);
         optimization_value->SetFont(opt_bold_font);
+        optimization_value->SetToolTip(_L("This is the time that can be saved if you run the Helio Additive Enhance feature. Click the Enhance Speed and Quality button to proceed."));
         
         // Right-align the optimization text
         optimization_block_sizer->Add(0, 0, 1, wxEXPAND, 0);
