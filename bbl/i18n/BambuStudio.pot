@@ -9908,6 +9908,9 @@ msgstr ""
 msgid "Save "
 msgstr ""
 
+msgid "Time saved: "
+msgstr ""
+
 msgid "From "
 msgstr ""
 

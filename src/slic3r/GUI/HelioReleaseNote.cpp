@@ -3063,7 +3063,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
             auto label_improvement = wxString::Format("%s", short_time(get_time_dhms(improvement_sec)));
             auto label_original = wxString::Format("%s", short_time(get_time_dhms(m_original_print_time_seconds)));
             auto label_optimized = wxString::Format("%s", short_time(get_time_dhms(final_opt_sec)));
-            speed_impro_text = _L("Save ") + label_improvement + " (" + _L("From ") + label_original + wxString(L" \u2192 ") + label_optimized + ")";
+            speed_impro_text = _L("Time saved: ") + label_improvement + " (" + _L("From ") + label_original + wxString(L" \u2192 ") + label_optimized + ")";
         }
     }
 
