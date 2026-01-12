@@ -982,7 +982,7 @@ HelioInputDialogTheme HelioInputDialog::get_theme() const
         // Light mode palette
         theme.bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
         theme.card = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
-        theme.card2 = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
+        theme.card2 = *wxWHITE;  // White for input fields to ensure clear contrast
         theme.border = wxColour(0, 0, 0, 25);   // Subtle dark border
         theme.text = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
         theme.muted = wxColour(100, 100, 100);  // Gray for muted text
@@ -2945,7 +2945,7 @@ HelioInputDialogTheme HelioSimulationResultsDialog::get_theme() const
         // Light mode palette
         theme.bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
         theme.card = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
-        theme.card2 = wxSystemSettings::GetColour(wxSYS_COLOUR_3DLIGHT);
+        theme.card2 = *wxWHITE;  // White for input fields to ensure clear contrast
         theme.border = wxColour(0, 0, 0, 25);
         theme.text = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
         theme.muted = wxColour(100, 100, 100);
