@@ -10133,7 +10133,7 @@ msgid "Now referred to as 'Assess' or 'Assessment'"
 msgstr "现称为\"评估\""
 
 msgid "Save "
-msgstr "保存 "
+msgstr "节省 "
 
 msgid "From "
 msgstr "从 "
