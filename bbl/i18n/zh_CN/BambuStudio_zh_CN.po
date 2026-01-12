@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Slic3rPE\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-09 14:43+0800\n"
+"POT-Creation-Date: 2026-01-12 16:34+0800\n"
 "PO-Revision-Date: 2025-02-20 20:32+0800\n"
 "Last-Translator: Jiang Yue <maze1024@gmail.com>\n"
 "Language-Team: \n"
@@ -2174,6 +2174,18 @@ msgstr "自动朝向"
 msgid "auto rotate current plate"
 msgstr "在当前盘执行自动朝向"
 
+msgid "Expand all"
+msgstr ""
+
+msgid "Expand all objects on this plate"
+msgstr ""
+
+msgid "Collapse all"
+msgstr ""
+
+msgid "Collapse all objects on this plate"
+msgstr ""
+
 msgid "Delete Plate"
 msgstr "删除盘"
 
@@ -2385,9 +2397,6 @@ msgstr "如果第一个选择的是对象，那么第二个选择的也必须是
 msgid "If the first selected item is a part, the second one should be part of the same object."
 msgstr "如果第一个选择的是零件，那么第二个选择的也必须是同一个对象中的零件。"
 
-msgid "The type of the last solid object part is not to be changed."
-msgstr "不允许修改对象中最后一个实体零件的类型。"
-
 msgid "Negative Part"
 msgstr "负零件"
 
@@ -2402,6 +2411,9 @@ msgstr "类型："
 
 msgid "Choose part type"
 msgstr "选择零件类型"
+
+msgid "The type of the last solid object part is not to be changed."
+msgstr "不允许修改对象中最后一个实体零件的类型。"
 
 msgid "Enter new name"
 msgstr "输入新名称"
@@ -6327,8 +6339,8 @@ msgstr "将发送的文件存储到外部存储"
 msgid "Save the printing files initiated from Bambu Studio, Bambu Handy and MakerWorld on External Storage"
 msgstr "将从 Bambu Studio、Bambu Handy 和 MakerWorld 启动的打印文件保存在外部存储中"
 
-msgid "Allow Prompt Sound"
-msgstr "支持提示音"
+msgid "Enable notification sounds"
+msgstr ""
 
 msgid "Filament Tangle Detect"
 msgstr "缠料检测"
@@ -9880,9 +9892,9 @@ msgid "You're nearly there! Now that Helio is activated, your first optimization
 msgstr "您快成功了！Helio 已激活，您的首次优化只需几分钟即可实现更快、更可靠的打印！（现称为\"增强\"）"
 
 msgid ""
-"Add an object to the build plate, select a material and printer that Helio supports, then slice."
+"Add an object to the build plate, select a material and printer that Helio supports, then slice.\n"
+"\n"
 msgstr ""
-"将对象添加到打印平台，选择 Helio 支持的材料和打印机，然后切片。"
 
 msgid "Supported printers and materials"
 msgstr "支持的打印机和材料"
@@ -10126,9 +10138,6 @@ msgstr "模拟热过程以确认您的零件可以无故障打印。"
 msgid "Now referred to as 'Assess' or 'Assessment'"
 msgstr "现称为\"评估\""
 
-msgid "Save "
-msgstr "保存 "
-
 msgid "Time saved: "
 msgstr "节省 "
 
@@ -10149,6 +10158,9 @@ msgstr "修复建议"
 
 msgid "With Enhance Speed & Quality:"
 msgstr "使用速度和质量增强："
+
+msgid "This is the time that can be saved if you run the Helio Additive Enhance feature. Click the Enhance Speed and Quality button to proceed."
+msgstr "这是运行 Helio Additive 增强功能可以节省的时间。点击\"增强速度和质量\"按钮继续。"
 
 msgid "Enhance Speed & Quality"
 msgstr "增强速度和质量"
@@ -10639,6 +10651,9 @@ msgstr "层高不能超过喷嘴直径"
 msgid "Plate %d: %s does not support filament %s"
 msgstr "盘%d：%s不支持耗材丝 %s"
 
+msgid "Precise outer wall will be ignored unless the order of walls is set to inner/outer"
+msgstr ""
+
 msgid "Generating skirt & brim"
 msgstr "正在生成skirt和brim"
 
@@ -11029,6 +11044,33 @@ msgstr ""
 "2. 避免外壁速度变化，因为这可能会产生类似 Z 形条纹的轻微壁面缺陷\n"
 "3. 避免以不同的速度打印导致外墙出现细微缺陷"
 
+msgid "Cooling slowdown logic"
+msgstr ""
+
+msgid ""
+"Determines how the printer slows down when minimum layer time isn't reached.\n"
+"\n"
+"'Uniform cooling' slows down all print features equally (current default behavior).\n"
+"\n"
+"'Consistent surface' prioritizes slowing infill and internal perimeters first, preserving external perimeter speed for better surface finish on glossy filaments. This helps reduce VFA (Vertical Fine Artifacts) and maintains consistent surface shine."
+msgstr ""
+
+msgid "Uniform cooling"
+msgstr ""
+
+msgid "Consistent surface"
+msgstr ""
+
+msgid "Perimeter transition distance"
+msgstr ""
+
+msgid ""
+"Distance in millimeters before the end of slowed perimeters where the original print speed is gradually restored. This reduces quality issues when transitioning from slowed features to fast external perimeter printing.\n"
+"\n"
+"Only applies when 'Consistent surface' cooling logic is selected.\n"
+"Recommended value: 5-10mm. Set to 0 to disable."
+msgstr ""
+
 msgid "Normal printing"
 msgstr "普通打印"
 
@@ -11036,6 +11078,17 @@ msgid "The default acceleration of both normal printing and travel except initia
 msgstr "除首层之外的默认的打印和空驶的加速度"
 
 msgid "The acceleration of travel except initial layer"
+msgstr ""
+
+msgid "Short travel"
+msgstr ""
+
+msgid ""
+"Acceleration used for short travel moves near external perimeters. Short travels are moves shorter than the 'Retraction minimum travel' distance.\n"
+"\n"
+"Lower values (e.g., 250-500 mm/s²) reduce ringing artifacts on sharp corners without significantly impacting print time.\n"
+"\n"
+"Set to 0 to disable (uses normal travel acceleration)."
 msgstr ""
 
 msgid "Initial layer travel"
@@ -15672,6 +15725,15 @@ msgid ""
 msgstr ""
 "首次打印即成功的可靠性\n"
 "更少看护，更可预测的产出。例如：运行PETG零件的小型生产线避免了「第6小时失败」的意外，保持批量生产按时进行。"
+
+#~ msgid "Allow Prompt Sound"
+#~ msgstr "支持提示音"
+
+#~ msgid "Add an object to the build plate, select a material and printer that Helio supports, then slice."
+#~ msgstr "将对象添加到打印平台，选择 Helio 支持的材料和打印机，然后切片。"
+
+#~ msgid "Save "
+#~ msgstr "保存 "
 
 #~ msgid ""
 #~ "Single-Material Only\n"

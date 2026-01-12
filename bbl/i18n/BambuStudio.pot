@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-09 14:43+0800\n"
+"POT-Creation-Date: 2026-01-12 16:34+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2161,6 +2161,18 @@ msgstr ""
 msgid "auto rotate current plate"
 msgstr ""
 
+msgid "Expand all"
+msgstr ""
+
+msgid "Expand all objects on this plate"
+msgstr ""
+
+msgid "Collapse all"
+msgstr ""
+
+msgid "Collapse all objects on this plate"
+msgstr ""
+
 msgid "Delete Plate"
 msgstr ""
 
@@ -2372,9 +2384,6 @@ msgstr ""
 msgid "If the first selected item is a part, the second one should be part of the same object."
 msgstr ""
 
-msgid "The type of the last solid object part is not to be changed."
-msgstr ""
-
 msgid "Negative Part"
 msgstr ""
 
@@ -2388,6 +2397,9 @@ msgid "Type:"
 msgstr ""
 
 msgid "Choose part type"
+msgstr ""
+
+msgid "The type of the last solid object part is not to be changed."
 msgstr ""
 
 msgid "Enter new name"
@@ -6227,7 +6239,7 @@ msgstr ""
 msgid "Save the printing files initiated from Bambu Studio, Bambu Handy and MakerWorld on External Storage"
 msgstr ""
 
-msgid "Allow Prompt Sound"
+msgid "Enable notification sounds"
 msgstr ""
 
 msgid "Filament Tangle Detect"
@@ -9905,13 +9917,7 @@ msgstr ""
 msgid "Now referred to as 'Assess' or 'Assessment'"
 msgstr ""
 
-msgid "Save "
-msgstr ""
-
 msgid "Time saved: "
-msgstr ""
-
-msgid "This is the time that can be saved if you run the Helio Additive Enhance feature. Click the Enhance Speed and Quality button to proceed."
 msgstr ""
 
 msgid "From "
@@ -9930,6 +9936,9 @@ msgid "Fix suggestions"
 msgstr ""
 
 msgid "With Enhance Speed & Quality:"
+msgstr ""
+
+msgid "This is the time that can be saved if you run the Helio Additive Enhance feature. Click the Enhance Speed and Quality button to proceed."
 msgstr ""
 
 msgid "Enhance Speed & Quality"
@@ -10419,6 +10428,9 @@ msgstr ""
 msgid "Plate %d: %s does not support filament %s"
 msgstr ""
 
+msgid "Precise outer wall will be ignored unless the order of walls is set to inner/outer"
+msgstr ""
+
 msgid "Generating skirt & brim"
 msgstr ""
 
@@ -10805,6 +10817,33 @@ msgid ""
 "3. To avoid printing at speeds which cause VFAs (fine artifacts) on the external walls"
 msgstr ""
 
+msgid "Cooling slowdown logic"
+msgstr ""
+
+msgid ""
+"Determines how the printer slows down when minimum layer time isn't reached.\n"
+"\n"
+"'Uniform cooling' slows down all print features equally (current default behavior).\n"
+"\n"
+"'Consistent surface' prioritizes slowing infill and internal perimeters first, preserving external perimeter speed for better surface finish on glossy filaments. This helps reduce VFA (Vertical Fine Artifacts) and maintains consistent surface shine."
+msgstr ""
+
+msgid "Uniform cooling"
+msgstr ""
+
+msgid "Consistent surface"
+msgstr ""
+
+msgid "Perimeter transition distance"
+msgstr ""
+
+msgid ""
+"Distance in millimeters before the end of slowed perimeters where the original print speed is gradually restored. This reduces quality issues when transitioning from slowed features to fast external perimeter printing.\n"
+"\n"
+"Only applies when 'Consistent surface' cooling logic is selected.\n"
+"Recommended value: 5-10mm. Set to 0 to disable."
+msgstr ""
+
 msgid "Normal printing"
 msgstr ""
 
@@ -10812,6 +10851,17 @@ msgid "The default acceleration of both normal printing and travel except initia
 msgstr ""
 
 msgid "The acceleration of travel except initial layer"
+msgstr ""
+
+msgid "Short travel"
+msgstr ""
+
+msgid ""
+"Acceleration used for short travel moves near external perimeters. Short travels are moves shorter than the 'Retraction minimum travel' distance.\n"
+"\n"
+"Lower values (e.g., 250-500 mm/s²) reduce ringing artifacts on sharp corners without significantly impacting print time.\n"
+"\n"
+"Set to 0 to disable (uses normal travel acceleration)."
 msgstr ""
 
 msgid "Initial layer travel"
