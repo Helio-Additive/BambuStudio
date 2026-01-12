@@ -10167,7 +10167,7 @@ public:
         wxColour warning_text_color = is_dark_mode ? wxColour(240, 240, 240) : wxColour(60, 50, 40);
         warning_text->SetForegroundColour(warning_text_color);
         warning_text->Wrap(wxWindowBase::FromDIP(440, this));
-        warning_sizer->Add(warning_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        warning_sizer->Add(warning_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         warning_sizer->AddSpacer(wxWindowBase::FromDIP(14, this));
         
         warning_box->SetSizer(warning_sizer);
@@ -10178,7 +10178,7 @@ public:
             _L("True multi-material support will be added in a future update."), LB_AUTO_WRAP);
         future_msg->SetForegroundColour(StateColor::darkModeColorFor(wxColour("#6B6B6B")));
         future_msg->Wrap(wxWindowBase::FromDIP(470, this));
-        main_sizer->Add(future_msg, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
+        main_sizer->Add(future_msg, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
         
         // Option 1: Proceed with single filament
         StaticBox* option1_box = new StaticBox(this, wxID_ANY, wxDefaultPosition,
@@ -10199,7 +10199,7 @@ public:
         Label* option1_desc = new Label(option1_box, Label::Body_13, 
             _L("Select which filament to use for simulation:"), LB_AUTO_WRAP);
         option1_desc->SetForegroundColour(text_color);
-        option1_sizer->Add(option1_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option1_sizer->Add(option1_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         option1_sizer->AddSpacer(wxWindowBase::FromDIP(8, this));
         
         // Dropdown for filament selection
@@ -10244,7 +10244,7 @@ public:
         wxColour critical_text_color = is_dark_mode ? wxColour(255, 200, 200) : wxColour(139, 0, 0);
         critical_text->SetForegroundColour(critical_text_color);
         critical_text->Wrap(wxWindowBase::FromDIP(400, this));
-        critical_sizer->Add(critical_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(10, this));
+        critical_sizer->Add(critical_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(10, this));
         critical_sizer->AddSpacer(wxWindowBase::FromDIP(10, this));
         
         critical_box->SetSizer(critical_sizer);
@@ -10262,7 +10262,7 @@ public:
         Button* proceed_button = new Button(option1_box, _L("Proceed Anyway"));
         proceed_button->SetBackgroundColor(btn_bg_orange);
         proceed_button->SetBorderColor(*wxWHITE);
-        proceed_button->SetTextColor(wxColour(0xFFFFFE));
+        proceed_button->SetTextColor(wxColour("#FFFFFE"));
         proceed_button->SetFont(Label::Body_12);
         proceed_button->SetSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
         proceed_button->SetMinSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
@@ -10326,7 +10326,7 @@ public:
             _L("Change your filament selection to use the same type for all colours, then try again."), LB_AUTO_WRAP);
         option2_desc->SetForegroundColour(option2_text_color);
         option2_desc->Wrap(wxWindowBase::FromDIP(440, this));
-        option2_sizer->Add(option2_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option2_sizer->Add(option2_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         
         wxHyperlinkCtrl* supported_materials_link = new wxHyperlinkCtrl(option2_box, wxID_ANY, 
             _L("See supported materials"), "https://wiki.helioadditive.com/en/supportedprinters", 
@@ -10345,7 +10345,7 @@ public:
         Button* goback_button = new Button(option2_box, _L("Go Back"));
         goback_button->SetBackgroundColor(btn_bg_green);
         goback_button->SetBorderColor(*wxWHITE);
-        goback_button->SetTextColor(wxColour(0xFFFFFE));
+        goback_button->SetTextColor(wxColour("#FFFFFE"));
         goback_button->SetFont(Label::Body_12);
         goback_button->SetSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
         goback_button->SetMinSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
@@ -10466,7 +10466,8 @@ public:
         Label* option1_desc = new Label(option1_box, Label::Body_13, 
             _L("Select a similar material type to use for simulation:"), LB_AUTO_WRAP);
         option1_desc->SetForegroundColour(text_color);
-        option1_sizer->Add(option1_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option1_desc->Wrap(wxWindowBase::FromDIP(420, this));
+        option1_sizer->Add(option1_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         option1_sizer->AddSpacer(wxWindowBase::FromDIP(8, this));
         
         // Dropdown for similar material selection
@@ -10499,7 +10500,7 @@ public:
             _L("Note: Using a reference material may result in approximate or erroneous results."), LB_AUTO_WRAP);
         note_text->SetForegroundColour(note_color);
         note_text->Wrap(wxWindowBase::FromDIP(420, this));
-        option1_sizer->Add(note_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option1_sizer->Add(note_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         option1_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
         
         // Proceed button for Option 1 - right aligned
@@ -10513,7 +10514,7 @@ public:
         Button* proceed_button = new Button(option1_box, _L("Proceed Anyway"));
         proceed_button->SetBackgroundColor(btn_bg_orange);
         proceed_button->SetBorderColor(*wxWHITE);
-        proceed_button->SetTextColor(wxColour(0xFFFFFE));
+        proceed_button->SetTextColor(wxColour("#FFFFFE"));
         proceed_button->SetFont(Label::Body_12);
         proceed_button->SetSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
         proceed_button->SetMinSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
@@ -10568,7 +10569,7 @@ public:
             _L("Change your filament selection to use a supported material, then try again."), LB_AUTO_WRAP);
         option2_desc->SetForegroundColour(option2_text_color);
         option2_desc->Wrap(wxWindowBase::FromDIP(440, this));
-        option2_sizer->Add(option2_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option2_sizer->Add(option2_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         
         wxHyperlinkCtrl* supported_materials_link = new wxHyperlinkCtrl(option2_box, wxID_ANY, 
             _L("See supported materials"), "https://wiki.helioadditive.com/en/supportedprinters", 
@@ -10587,7 +10588,7 @@ public:
         Button* goback_button = new Button(option2_box, _L("Go Back"));
         goback_button->SetBackgroundColor(btn_bg_green);
         goback_button->SetBorderColor(*wxWHITE);
-        goback_button->SetTextColor(wxColour(0xFFFFFE));
+        goback_button->SetTextColor(wxColour("#FFFFFE"));
         goback_button->SetFont(Label::Body_12);
         goback_button->SetSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
         goback_button->SetMinSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
@@ -10754,7 +10755,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                     wxColour warning_text_color = is_dark_mode ? wxColour(240, 240, 240) : wxColour(60, 50, 40);
                     m_warning_text->SetForegroundColour(warning_text_color);
                     m_warning_text->Wrap(wxWindowBase::FromDIP(440, this));
-                    warning_sizer->Add(m_warning_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                    warning_sizer->Add(m_warning_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                     warning_sizer->AddSpacer(wxWindowBase::FromDIP(14, this));
                     
                     m_warning_box->SetSizer(warning_sizer);
@@ -10783,7 +10784,8 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                     Label* option1_desc = new Label(option1_box, Label::Body_13, 
                         _L("Select a similar printer to use for simulation:"), LB_AUTO_WRAP);
                     option1_desc->SetForegroundColour(text_color);
-                    option1_sizer->Add(option1_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                    option1_desc->Wrap(wxWindowBase::FromDIP(420, this));
+                    option1_sizer->Add(option1_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                     option1_sizer->AddSpacer(wxWindowBase::FromDIP(8, this));
                     
                     // Dropdown for printer selection
@@ -10804,7 +10806,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                         _L("Note: Using a reference printer may result in approximate or erroneous results."), LB_AUTO_WRAP);
                     note_text->SetForegroundColour(note_color);
                     note_text->Wrap(wxWindowBase::FromDIP(420, this));
-                    option1_sizer->Add(note_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                    option1_sizer->Add(note_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                     option1_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
                     
                     // Proceed button - right aligned
@@ -10818,7 +10820,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                     Button* proceed_button = new Button(option1_box, _L("Proceed Anyway"));
                     proceed_button->SetBackgroundColor(btn_bg_orange);
                     proceed_button->SetBorderColor(*wxWHITE);
-                    proceed_button->SetTextColor(wxColour(0xFFFFFE));
+                    proceed_button->SetTextColor(wxColour("#FFFFFE"));
                     proceed_button->SetFont(Label::Body_12);
                     proceed_button->SetSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
                     proceed_button->SetMinSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
@@ -10866,7 +10868,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                         _L("Change your printer selection to use a supported printer, then try again."), LB_AUTO_WRAP);
                     option2_desc->SetForegroundColour(option2_text_color);
                     option2_desc->Wrap(wxWindowBase::FromDIP(440, this));
-                    option2_sizer->Add(option2_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                    option2_sizer->Add(option2_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                     
                     wxHyperlinkCtrl* supported_printers_link = new wxHyperlinkCtrl(option2_box, wxID_ANY, 
                         _L("See supported printers"), "https://wiki.helioadditive.com/en/supportedprinters", 
@@ -10885,7 +10887,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                     Button* goback_button = new Button(option2_box, _L("Go Back"));
                     goback_button->SetBackgroundColor(btn_bg_green);
                     goback_button->SetBorderColor(*wxWHITE);
-                    goback_button->SetTextColor(wxColour(0xFFFFFE));
+                    goback_button->SetTextColor(wxColour("#FFFFFE"));
                     goback_button->SetFont(Label::Body_12);
                     goback_button->SetSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
                     goback_button->SetMinSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
@@ -10900,9 +10902,12 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                     main_sizer->Add(option2_box, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
                     
                     SetSizer(main_sizer);
+                    // On Windows, UpdateDlgDarkUI may change non-client metrics (titlebar/theme).
+                    // Apply it before fitting the dialog to avoid bottom content being clipped.
+                    wxGetApp().UpdateDlgDarkUI(this);
                     Layout();
                     main_sizer->Fit(this);
-                    wxGetApp().UpdateDlgDarkUI(this);
+                    main_sizer->SetSizeHints(this);
                 }
                 
                 void on_dpi_changed(const wxRect &suggested_rect) override {}
@@ -11294,7 +11299,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                         wxColour warning_text_color = is_dark_mode ? wxColour(240, 240, 240) : wxColour(60, 50, 40);
                         m_warning_text->SetForegroundColour(warning_text_color);
                         m_warning_text->Wrap(wxWindowBase::FromDIP(440, this));
-                        warning_sizer->Add(m_warning_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                        warning_sizer->Add(m_warning_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                         warning_sizer->AddSpacer(wxWindowBase::FromDIP(14, this));
                         
                         m_warning_box->SetSizer(warning_sizer);
@@ -11323,7 +11328,8 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                         Label* option1_desc = new Label(option1_box, Label::Body_13, 
                             _L("Select a similar material type to use for simulation:"), LB_AUTO_WRAP);
                         option1_desc->SetForegroundColour(text_color);
-                        option1_sizer->Add(option1_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                        option1_desc->Wrap(wxWindowBase::FromDIP(420, this));
+                        option1_sizer->Add(option1_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                         option1_sizer->AddSpacer(wxWindowBase::FromDIP(8, this));
                         
                         // Dropdown for material selection
@@ -11344,7 +11350,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                             _L("Note: Using a reference material may result in approximate or erroneous results."), LB_AUTO_WRAP);
                         note_text->SetForegroundColour(note_color);
                         note_text->Wrap(wxWindowBase::FromDIP(420, this));
-                        option1_sizer->Add(note_text, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                        option1_sizer->Add(note_text, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                         option1_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
                         
                         // Proceed button - right aligned
@@ -11358,7 +11364,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                         Button* proceed_button = new Button(option1_box, _L("Proceed Anyway"));
                         proceed_button->SetBackgroundColor(btn_bg_orange);
                         proceed_button->SetBorderColor(*wxWHITE);
-                        proceed_button->SetTextColor(wxColour(0xFFFFFE));
+                        proceed_button->SetTextColor(wxColour("#FFFFFE"));
                         proceed_button->SetFont(Label::Body_12);
                         proceed_button->SetSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
                         proceed_button->SetMinSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
@@ -11406,7 +11412,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                             _L("Change your filament selection to use a supported material, then try again."), LB_AUTO_WRAP);
                         option2_desc->SetForegroundColour(option2_text_color);
                         option2_desc->Wrap(wxWindowBase::FromDIP(440, this));
-                        option2_sizer->Add(option2_desc, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+                        option2_sizer->Add(option2_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
                         
                         wxHyperlinkCtrl* supported_materials_link = new wxHyperlinkCtrl(option2_box, wxID_ANY, 
                             _L("See supported materials"), "https://wiki.helioadditive.com/en/supportedprinters", 
@@ -11425,7 +11431,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
                         Button* goback_button = new Button(option2_box, _L("Go Back"));
                         goback_button->SetBackgroundColor(btn_bg_green);
                         goback_button->SetBorderColor(*wxWHITE);
-                        goback_button->SetTextColor(wxColour(0xFFFFFE));
+                        goback_button->SetTextColor(wxColour("#FFFFFE"));
                         goback_button->SetFont(Label::Body_12);
                         goback_button->SetSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
                         goback_button->SetMinSize(wxSize(wxWindowBase::FromDIP(100, this), wxWindowBase::FromDIP(28, this)));
