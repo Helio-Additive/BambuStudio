@@ -739,8 +739,21 @@ void HelioStatementDialog::create_pat_page()
     button_row->Add(run_optimization_button, 0, wxALIGN_CENTER, 0);
     button_row->Add(0, 0, 0, wxLEFT, FromDIP(12));
     button_row->Add(copy_pat_button, 0, wxALIGN_CENTER_VERTICAL, 0);
+
+    LinkLabel* preflight_link = new LinkLabel(page_pat_panel, _L("Pre/Post Flight Check"), "");
+    preflight_link->SetFont(Label::Body_12);
+    preflight_link->SeLinkLabelFColour(wxColour(0, 119, 250));
+    preflight_link->SeLinkLabelBColour(HELIO_BG_BASE);
+    preflight_link->Bind(EVT_LINK_LABEL_LEFT_DOWN, [this](wxCommandEvent&) {
+        HelioPrePostFlightDialog dlg(this);
+        dlg.ShowModal();
+    });
+    preflight_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
+    preflight_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     
     content_sizer->Add(button_row, 0, wxALIGN_CENTER, 0);
+    content_sizer->Add(0, 0, 0, wxTOP, FromDIP(12));
+    content_sizer->Add(preflight_link, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(40));
     content_sizer->Add(helio_links_sizer, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(20));
@@ -928,6 +941,321 @@ void HelioRemainUsageTime::UpdateRemainTime(int remain_time)
     if (m_remain_usage_time != remain_time) {
         m_remain_usage_time = remain_time;
         m_label_remain_usage_time->SetLabelText(wxString::Format("%d", m_remain_usage_time));
+    }
+}
+
+HelioPrePostFlightDialog::HelioPrePostFlightDialog(wxWindow* parent)
+    : DPIDialog(parent ? parent : static_cast<wxWindow *>(wxGetApp().mainframe),
+                wxID_ANY,
+                _L("Helio Additive"),
+                wxDefaultPosition,
+                wxDefaultSize,
+                wxCAPTION | wxCLOSE_BOX)
+{
+    SetBackgroundColour(HELIO_BG_BASE);
+    wxBoxSizer* main_sizer = new wxBoxSizer(wxVERTICAL);
+
+    auto title = new Label(this, Label::Head_18, _L("Pre/Post Flight Check"));
+    title->SetForegroundColour(wxColour("#FFFFFF"));
+    main_sizer->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(24));
+
+    auto subtitle = new Label(this, Label::Body_12,
+                              _L("Check readiness before running Helio, or troubleshoot after completion."));
+    subtitle->SetForegroundColour(wxColour(190, 190, 190));
+    main_sizer->Add(subtitle, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+
+    m_notebook = new wxNotebook(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBK_TOP);
+    m_preflight_panel = new wxPanel(m_notebook);
+    m_postflight_panel = new wxPanel(m_notebook);
+    m_preflight_panel->SetBackgroundColour(HELIO_BG_BASE);
+    m_postflight_panel->SetBackgroundColour(HELIO_BG_BASE);
+
+    build_preflight_panel();
+    build_postflight_panel();
+
+    m_notebook->AddPage(m_preflight_panel, _L("Pre-flight"), true);
+    m_notebook->AddPage(m_postflight_panel, _L("Post-flight"), false);
+    main_sizer->Add(m_notebook, 1, wxEXPAND | wxALL, FromDIP(20));
+
+    SetSizer(main_sizer);
+    Layout();
+    Fit();
+}
+
+void HelioPrePostFlightDialog::on_dpi_changed(const wxRect &suggested_rect)
+{
+}
+
+void HelioPrePostFlightDialog::build_preflight_panel()
+{
+    wxBoxSizer* preflight_sizer = new wxBoxSizer(wxVERTICAL);
+    m_preflight_list_sizer = new wxBoxSizer(wxVERTICAL);
+
+    preflight_sizer->Add(m_preflight_list_sizer, 1, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+
+    StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed),
+                            std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
+                            std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+    Button* refresh_button = new Button(m_preflight_panel, _L("Run pre-flight again"));
+    refresh_button->SetBackgroundColor(btn_bg_green);
+    refresh_button->SetBorderColor(*wxWHITE);
+    refresh_button->SetTextColor(wxColour("#FFFFFE"));
+    refresh_button->SetFont(Label::Body_12);
+    refresh_button->SetSize(wxSize(FromDIP(170), FromDIP(30)));
+    refresh_button->SetMinSize(wxSize(FromDIP(170), FromDIP(30)));
+    refresh_button->SetCornerRadius(FromDIP(12));
+    refresh_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) { refresh_preflight_checks(); });
+
+    wxBoxSizer* button_row = new wxBoxSizer(wxHORIZONTAL);
+    button_row->AddStretchSpacer();
+    button_row->Add(refresh_button, 0, wxTOP | wxBOTTOM, FromDIP(12));
+    preflight_sizer->Add(button_row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(16));
+
+    m_preflight_panel->SetSizer(preflight_sizer);
+    refresh_preflight_checks();
+}
+
+void HelioPrePostFlightDialog::build_postflight_panel()
+{
+    wxBoxSizer* postflight_sizer = new wxBoxSizer(wxVERTICAL);
+    m_postflight_list_sizer = new wxBoxSizer(wxVERTICAL);
+
+    postflight_sizer->Add(m_postflight_list_sizer, 1, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+
+    StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed),
+                            std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
+                            std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+    Button* refresh_button = new Button(m_postflight_panel, _L("Refresh history"));
+    refresh_button->SetBackgroundColor(btn_bg_green);
+    refresh_button->SetBorderColor(*wxWHITE);
+    refresh_button->SetTextColor(wxColour("#FFFFFE"));
+    refresh_button->SetFont(Label::Body_12);
+    refresh_button->SetSize(wxSize(FromDIP(140), FromDIP(30)));
+    refresh_button->SetMinSize(wxSize(FromDIP(140), FromDIP(30)));
+    refresh_button->SetCornerRadius(FromDIP(12));
+    refresh_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) { refresh_postflight_history(); });
+
+    wxBoxSizer* button_row = new wxBoxSizer(wxHORIZONTAL);
+    button_row->AddStretchSpacer();
+    button_row->Add(refresh_button, 0, wxTOP | wxBOTTOM, FromDIP(12));
+    postflight_sizer->Add(button_row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(16));
+
+    postflight_sizer->Add(0, 0, 0, wxBOTTOM, FromDIP(8));
+    m_postflight_panel->SetSizer(postflight_sizer);
+    refresh_postflight_history();
+}
+
+void HelioPrePostFlightDialog::refresh_preflight_checks()
+{
+    if (!m_preflight_list_sizer)
+        return;
+
+    m_preflight_list_sizer->Clear(true);
+
+    std::vector<CheckItem> items;
+
+    const std::string pat = Slic3r::HelioQuery::get_helio_pat();
+    items.push_back({
+        _L("Helio PAT is available"),
+        pat.empty() ? _L("No PAT found. Refresh it from Helio activation or settings.") : _L("Ready to authenticate Helio requests."),
+        pat.empty() ? CheckStatus::Fail : CheckStatus::Pass
+    });
+
+    const std::string api_url = Slic3r::HelioQuery::get_helio_api_url();
+    items.push_back({
+        _L("Helio API endpoint is set"),
+        api_url.empty() ? _L("No endpoint configured. Check your Helio settings.") : _L("Endpoint configured for Helio services."),
+        api_url.empty() ? CheckStatus::Warn : CheckStatus::Pass
+    });
+
+    const bool supports_ready = !Slic3r::HelioQuery::global_supported_printers.empty()
+        && !Slic3r::HelioQuery::global_supported_materials.empty();
+    items.push_back({
+        _L("Supported printers and materials are synced"),
+        supports_ready ? _L("Support lists are available.") : _L("Support lists are still syncing. Try again in a moment."),
+        supports_ready ? CheckStatus::Pass : CheckStatus::Warn
+    });
+
+    const bool sequence_ok = wxGetApp().global_print_sequence() != PrintSequence::ByObject;
+    items.push_back({
+        _L("Print sequence is compatible"),
+        sequence_ok ? _L("Current print sequence is supported by Helio.") : _L("By-object printing is not supported. Switch to By-layer."),
+        sequence_ok ? CheckStatus::Pass : CheckStatus::Fail
+    });
+
+    bool has_slice = false;
+    if (auto plater = wxGetApp().plater()) {
+        if (auto plate = plater->get_partplate_list().get_curr_plate()) {
+            has_slice = plate->is_slice_result_valid();
+        }
+    }
+    items.push_back({
+        _L("Model is sliced"),
+        has_slice ? _L("A valid slice exists for the current plate.") : _L("Slice the current plate before running Helio."),
+        has_slice ? CheckStatus::Pass : CheckStatus::Fail
+    });
+
+    bool helio_idle = true;
+    if (auto plater = wxGetApp().plater()) {
+        helio_idle = plater->get_helio_process_status() != Slic3r::HelioBackgroundProcess::State::STATE_RUNNING;
+    }
+    items.push_back({
+        _L("No Helio job is currently running"),
+        helio_idle ? _L("Helio is idle.") : _L("A Helio job is running. Wait for it to finish."),
+        helio_idle ? CheckStatus::Pass : CheckStatus::Warn
+    });
+
+    for (const auto& item : items) {
+        add_preflight_row(item);
+    }
+
+    m_preflight_panel->Layout();
+    Layout();
+    Fit();
+}
+
+void HelioPrePostFlightDialog::refresh_postflight_history()
+{
+    if (!m_postflight_list_sizer)
+        return;
+
+    m_postflight_list_sizer->Clear(true);
+
+    const std::string pat = Slic3r::HelioQuery::get_helio_pat();
+    const std::string api_url = Slic3r::HelioQuery::get_helio_api_url();
+    if (pat.empty() || api_url.empty()) {
+        auto placeholder = new Label(m_postflight_panel, Label::Body_13,
+                                     _L("Connect Helio to retrieve recent simulations and optimizations."));
+        placeholder->SetForegroundColour(wxColour(190, 190, 190));
+        placeholder->Wrap(FromDIP(520));
+        m_postflight_list_sizer->Add(placeholder, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+        m_postflight_panel->Layout();
+        Layout();
+        Fit();
+        return;
+    }
+
+    auto loading = new Label(m_postflight_panel, Label::Body_13, _L("Loading recent Helio history..."));
+    loading->SetForegroundColour(wxColour(190, 190, 190));
+    m_postflight_list_sizer->Add(loading, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    m_postflight_panel->Layout();
+
+    Slic3r::HelioQuery::request_recent_history(api_url, pat, 10,
+        [this](const Slic3r::HelioQuery::HistoryResult& result) {
+            wxTheApp->CallAfter([this, result]() {
+                if (!m_postflight_list_sizer)
+                    return;
+                m_postflight_list_sizer->Clear(true);
+
+                if (!result.success) {
+                    auto error_label = new Label(m_postflight_panel, Label::Body_13,
+                                                 _L("Unable to load history. Please try again."));
+                    error_label->SetForegroundColour(wxColour(255, 150, 150));
+                    error_label->Wrap(FromDIP(520));
+                    m_postflight_list_sizer->Add(error_label, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+                } else {
+                    add_postflight_section(_L("Simulations (last 10)"), result.simulations);
+                    add_postflight_section(_L("Optimizations (last 10)"), result.optimizations);
+                }
+
+                m_postflight_panel->Layout();
+                Layout();
+                Fit();
+            });
+        });
+}
+
+void HelioPrePostFlightDialog::add_preflight_row(const CheckItem& item)
+{
+    wxPanel* row_panel = new wxPanel(m_preflight_panel);
+    row_panel->SetBackgroundColour(HELIO_BG_BASE);
+
+    wxBoxSizer* row_sizer = new wxBoxSizer(wxHORIZONTAL);
+    wxBoxSizer* text_sizer = new wxBoxSizer(wxVERTICAL);
+
+    wxString icon_text;
+    wxColour icon_color("#4CAF50");
+    if (item.status == CheckStatus::Warn) {
+        icon_text = "⚠";
+        icon_color = wxColour("#FFB300");
+    } else if (item.status == CheckStatus::Fail) {
+        icon_text = "✕";
+        icon_color = wxColour("#FF6B6B");
+    } else {
+        icon_text = "✓";
+    }
+
+    auto icon = new Label(row_panel, Label::Head_14, icon_text);
+    icon->SetForegroundColour(icon_color);
+    row_sizer->Add(icon, 0, wxALIGN_TOP | wxRIGHT, FromDIP(12));
+
+    auto title = new Label(row_panel, Label::Body_14, item.title);
+    title->SetForegroundColour(wxColour("#FFFFFF"));
+    text_sizer->Add(title, 0, wxBOTTOM, FromDIP(4));
+
+    auto detail = new Label(row_panel, Label::Body_12, item.detail, LB_AUTO_WRAP);
+    detail->SetForegroundColour(wxColour(170, 170, 170));
+    detail->Wrap(FromDIP(520));
+    text_sizer->Add(detail, 0);
+
+    row_sizer->Add(text_sizer, 1, wxEXPAND);
+    row_panel->SetSizer(row_sizer);
+
+    m_preflight_list_sizer->Add(row_panel, 0, wxEXPAND | wxBOTTOM, FromDIP(12));
+}
+
+void HelioPrePostFlightDialog::add_postflight_section(const wxString& title,
+                                                      const std::vector<Slic3r::HelioQuery::HistoryItem>& items)
+{
+    auto section_title = new Label(m_postflight_panel, Label::Head_14, title);
+    section_title->SetForegroundColour(wxColour("#FFFFFF"));
+    m_postflight_list_sizer->Add(section_title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+
+    if (items.empty()) {
+        auto empty_label = new Label(m_postflight_panel, Label::Body_12, _L("No recent runs found."));
+        empty_label->SetForegroundColour(wxColour(170, 170, 170));
+        m_postflight_list_sizer->Add(empty_label, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(4));
+        return;
+    }
+
+    for (const auto& item : items) {
+        wxPanel* row_panel = new wxPanel(m_postflight_panel);
+        row_panel->SetBackgroundColour(HELIO_BG_BASE);
+
+        wxBoxSizer* row_sizer = new wxBoxSizer(wxVERTICAL);
+
+        wxString title_line = wxString::Format("%s • %s",
+                                              wxString::FromUTF8(item.name),
+                                              wxString::FromUTF8(item.status));
+        auto name_label = new Label(row_panel, Label::Body_13, title_line);
+        name_label->SetForegroundColour(wxColour("#FFFFFF"));
+        row_sizer->Add(name_label, 0, wxBOTTOM, FromDIP(4));
+
+        wxString detail_line = wxString::Format("%s • %s • %d layers",
+                                               wxString::FromUTF8(item.gcode.printerName),
+                                               wxString::FromUTF8(item.gcode.materialName),
+                                               item.gcode.numberOfLayers);
+        if (!item.insertedAt.empty()) {
+            detail_line += wxString::Format(" • %s", wxString::FromUTF8(item.insertedAt));
+        }
+        auto detail_label = new Label(row_panel, Label::Body_12, detail_line, LB_AUTO_WRAP);
+        detail_label->SetForegroundColour(wxColour(170, 170, 170));
+        row_sizer->Add(detail_label, 0, wxBOTTOM, FromDIP(6));
+
+        if (!item.gcode.gcodeUrl.empty()) {
+            LinkLabel* download_link = new LinkLabel(row_panel, _L("Download GCode"), item.gcode.gcodeUrl);
+            download_link->SetFont(Label::Body_12);
+            download_link->SeLinkLabelFColour(wxColour(0, 119, 250));
+            download_link->SeLinkLabelBColour(HELIO_BG_BASE);
+            row_sizer->Add(download_link, 0);
+        } else {
+            auto missing_link = new Label(row_panel, Label::Body_12, _L("GCode link unavailable."));
+            missing_link->SetForegroundColour(wxColour(200, 160, 120));
+            row_sizer->Add(missing_link, 0);
+        }
+
+        row_panel->SetSizer(row_sizer);
+        m_postflight_list_sizer->Add(row_panel, 0, wxEXPAND | wxTOP, FromDIP(8));
     }
 }
 

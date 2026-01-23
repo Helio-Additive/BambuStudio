@@ -1038,7 +1038,126 @@ void HelioQuery::stop_simulation(const std::string helio_api_url, const std::str
         .on_error([=](std::string body, std::string error, unsigned status) {
             BOOST_LOG_TRIVIAL(info) << (boost::format("stop_simulation: failed")).str();
          })
-        .perform_sync();
+        .perform();
+}
+
+void HelioQuery::request_recent_history(const std::string& helio_api_url, const std::string& helio_api_key, int limit,
+    std::function<void(const HistoryResult& result)> func)
+{
+    HistoryResult result;
+    nlohmann::json query;
+    query["query"] = R"(query GetHistory($limit: Int) {
+  optimizations(limit: $limit) {
+    objects {
+      ... on Optimization {
+        name
+        status
+        insertedAt
+        gcode {
+          gcodeUrl
+          gcodeKey
+          numberOfLayers
+          slicer
+          material { name }
+          printer { name }
+        }
+      }
+    }
+  }
+  simulations(limit: $limit) {
+    objects {
+      ... on Simulation {
+        name
+        status
+        insertedAt
+        gcode {
+          gcodeUrl
+          gcodeKey
+          numberOfLayers
+          slicer
+          material { name }
+          printer { name }
+        }
+      }
+    }
+  }
+})";
+    query["variables"] = { {"limit", limit} };
+    std::string query_body = query.dump();
+
+    auto http = Http::post(helio_api_url);
+    http.header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + helio_api_key)
+        .header("HelioAdditive-Client-Name", SLIC3R_APP_NAME)
+        .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
+        .set_post_body(query_body);
+
+    http.timeout_connect(20)
+        .timeout_max(100)
+        .on_complete([func, result](std::string body, unsigned status) mutable {
+            (void)status;
+            try {
+                nlohmann::json parsed_obj = nlohmann::json::parse(body);
+                if (parsed_obj.contains("errors")) {
+                    result.success = false;
+                    result.error = format_error(body);
+                    func(result);
+                    return;
+                }
+
+                auto parse_items = [](const nlohmann::json& objects, std::vector<HistoryItem>& target) {
+                    if (!objects.is_array())
+                        return;
+                    for (const auto& item : objects) {
+                        if (!item.is_object())
+                            continue;
+                        HistoryItem history_item;
+                        history_item.name = item.value("name", "");
+                        history_item.status = item.value("status", "");
+                        history_item.insertedAt = item.value("insertedAt", "");
+                        if (item.contains("gcode") && item["gcode"].is_object()) {
+                            const auto& gcode = item["gcode"];
+                            history_item.gcode.gcodeUrl = gcode.value("gcodeUrl", "");
+                            history_item.gcode.gcodeKey = gcode.value("gcodeKey", "");
+                            history_item.gcode.numberOfLayers = gcode.value("numberOfLayers", 0);
+                            history_item.gcode.slicer = gcode.value("slicer", "");
+                            if (gcode.contains("material") && gcode["material"].is_object()) {
+                                history_item.gcode.materialName = gcode["material"].value("name", "");
+                            }
+                            if (gcode.contains("printer") && gcode["printer"].is_object()) {
+                                history_item.gcode.printerName = gcode["printer"].value("name", "");
+                            }
+                        }
+                        target.push_back(std::move(history_item));
+                    }
+                };
+
+                if (parsed_obj.contains("data")) {
+                    auto data = parsed_obj["data"];
+                    if (data.contains("optimizations") && data["optimizations"].contains("objects")) {
+                        parse_items(data["optimizations"]["objects"], result.optimizations);
+                    }
+                    if (data.contains("simulations") && data["simulations"].contains("objects")) {
+                        parse_items(data["simulations"]["objects"], result.simulations);
+                    }
+                }
+
+                result.success = true;
+                func(result);
+            } catch (const std::exception& e) {
+                result.success = false;
+                result.error = e.what();
+                func(result);
+            }
+        })
+        .on_error([func, result](std::string body, std::string error, unsigned status) mutable {
+            (void)body;
+            (void)status;
+            result.success = false;
+            result.error = error;
+            func(result);
+        })
+        .perform();
 }
 
 HelioQuery::CheckSimulationProgressResult HelioQuery::check_simulation_progress(const std::string helio_api_url,

@@ -206,6 +206,31 @@ public:
         std::string qualityStdImprovement;
     };  
 
+    struct HistoryGcodeInfo
+    {
+        std::string gcodeUrl;
+        std::string gcodeKey;
+        std::string materialName;
+        std::string printerName;
+        int numberOfLayers{0};
+        std::string slicer;
+    };
+
+    struct HistoryItem
+    {
+        std::string name;
+        std::string status;
+        std::string insertedAt;
+        HistoryGcodeInfo gcode;
+    };
+
+    struct HistoryResult
+    {
+        bool success{false};
+        std::string error;
+        std::vector<HistoryItem> simulations;
+        std::vector<HistoryItem> optimizations;
+    };
     
     static std::string get_helio_api_url();
     static std::string get_helio_pat();
@@ -311,6 +336,9 @@ public:
     /*user*/
     static void request_remaining_optimizations(const std::string& helio_api_url, const std::string& helio_api_key, 
         std::function<void(int times, int addons, const std::string& subscription_name, bool free_trial_eligible, bool is_free_trial_active, bool is_free_trial_claimed)> func);
+
+    static void request_recent_history(const std::string& helio_api_url, const std::string& helio_api_key, int limit,
+        std::function<void(const HistoryResult& result)> func);
 };
 
 class HelioBackgroundProcess

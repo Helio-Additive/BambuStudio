@@ -25,6 +25,7 @@
 #include <wx/wrapsizer.h>
 #include <wx/event.h>
 #include <wx/hyperlink.h>
+#include <wx/notebook.h>
 #include <wx/richtext/richtextctrl.h>
 
 #include "GUI_Utils.hpp"
@@ -130,6 +131,34 @@ private:
 private:
     int    m_remain_usage_time = 0;
     Label* m_label_remain_usage_time;
+};
+
+class HelioPrePostFlightDialog : public DPIDialog
+{
+public:
+    HelioPrePostFlightDialog(wxWindow* parent = nullptr);
+    void on_dpi_changed(const wxRect &suggested_rect) override;
+
+private:
+    enum class CheckStatus { Pass, Warn, Fail };
+    struct CheckItem {
+        wxString title;
+        wxString detail;
+        CheckStatus status;
+    };
+
+    wxNotebook* m_notebook{ nullptr };
+    wxPanel* m_preflight_panel{ nullptr };
+    wxPanel* m_postflight_panel{ nullptr };
+    wxBoxSizer* m_preflight_list_sizer{ nullptr };
+    wxBoxSizer* m_postflight_list_sizer{ nullptr };
+
+    void build_preflight_panel();
+    void build_postflight_panel();
+    void refresh_preflight_checks();
+    void refresh_postflight_history();
+    void add_preflight_row(const CheckItem& item);
+    void add_postflight_section(const wxString& title, const std::vector<Slic3r::HelioQuery::HistoryItem>& items);
 };
 
 // Theme colors for HelioInputDialog
