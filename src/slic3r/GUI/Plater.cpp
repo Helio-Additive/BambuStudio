@@ -12744,17 +12744,18 @@ GLCanvas3D* Plater::priv::get_current_canvas3D(bool exclude_preview)
 }
 
 bool Plater::priv::get_preview_min_max_value_of_option(int index, float &_min, float &_max) {
-    if (current_panel == preview){
+    // Access preview canvas directly - GCode data persists after slicing
+    if (preview && preview->get_canvas3d()) {
         auto& gcode_viewer = preview->get_canvas3d()->get_gcode_viewer();
-        return gcode_viewer.get_min_max_value_of_option(index,_min, _max);
+        return gcode_viewer.get_min_max_value_of_option(index, _min, _max);
     }
     return false;
- }
+}
 
 int Plater::priv::get_gcode_layers_count()
 {
-    if (current_panel == preview)
-    {
+    // Access preview canvas directly - GCode data persists after slicing
+    if (preview && preview->get_canvas3d()) {
         return preview->get_canvas3d()->get_gcode_layers_count();
     }
     return 0;
