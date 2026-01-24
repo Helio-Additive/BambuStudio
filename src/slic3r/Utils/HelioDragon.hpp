@@ -13,6 +13,7 @@
 #include <mutex>
 #include <boost/thread.hpp>
 #include <wx/event.h>
+#include <chrono>
 
 #include "PrintHost.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -204,9 +205,56 @@ public:
         int action = 0;
         std::string qualityMeanImprovement;
         std::string qualityStdImprovement;
-    };  
+    };
 
-    
+    // History feature - Recent runs data structures
+    struct OptimizationRun
+    {
+        std::string id;
+        std::string name;
+        std::string status;
+        std::string gcode_url;
+        std::string gcode_key;
+        std::string optimized_gcode_with_thermal_indexes_url;  // Thermal index enhanced GCode URL
+        std::string printer_id;
+        std::string printer_name;
+        std::string material_id;
+        std::string material_name;
+        int number_of_layers{0};
+        std::string slicer;
+        std::string quality_mean_improvement;  // "HIGH", "LOW", "MEDIUM", etc.
+        std::string quality_std_improvement;   // "HIGH", "LOW", "MEDIUM", etc.
+        std::chrono::system_clock::time_point timestamp;
+    };
+
+    struct SimulationRun
+    {
+        std::string id;
+        std::string name;
+        std::string status;
+        std::string gcode_url;
+        std::string gcode_key;
+        std::string thermal_index_gcode_url;  // Thermal index enhanced GCode URL
+        std::string printer_id;
+        std::string printer_name;
+        std::string material_id;
+        std::string material_name;
+        int number_of_layers{0};
+        std::string slicer;
+        std::string print_outcome;  // WILL_PRINT, MAY_PRINT, LIKELY_FAIL
+        std::chrono::system_clock::time_point timestamp;
+    };
+
+    struct GetRecentRunsResult
+    {
+        bool success{false};
+        std::vector<OptimizationRun> optimizations;
+        std::vector<SimulationRun> simulations;
+        std::string error;
+        unsigned status{0};
+    };
+
+
     static std::string get_helio_api_url();
     static std::string get_helio_pat();
     static void set_helio_pat(std::string pat);
@@ -309,8 +357,12 @@ public:
     static double convert_volume_speed(float mm3_per_second);
 
     /*user*/
-    static void request_remaining_optimizations(const std::string& helio_api_url, const std::string& helio_api_key, 
+    static void request_remaining_optimizations(const std::string& helio_api_url, const std::string& helio_api_key,
         std::function<void(int times, int addons, const std::string& subscription_name, bool free_trial_eligible, bool is_free_trial_active, bool is_free_trial_claimed)> func);
+
+    /*history*/
+    static GetRecentRunsResult get_recent_runs(const std::string& helio_api_url, const std::string& helio_api_key);
+    static std::chrono::system_clock::time_point parse_timestamp_from_name(const std::string& name);
 };
 
 class HelioBackgroundProcess

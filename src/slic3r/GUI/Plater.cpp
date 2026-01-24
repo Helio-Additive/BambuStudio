@@ -15349,6 +15349,10 @@ void Plater::load_gcode(const wxString& filename)
 
     m_only_gcode = true;
 
+    // Clear Helio simulation/optimization results when loading a new GCode file
+    // This prevents showing stale "View Summary" data from previous runs
+    p->helio_background_process.clear_last_simulation_result();
+
     // cleanup view before to start loading/processing
     //BBS: update gcode to current partplate's
     GCodeProcessorResult* current_result = p->partplate_list.get_current_slice_result();

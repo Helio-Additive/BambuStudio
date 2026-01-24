@@ -1891,4 +1891,317 @@ void HelioBackgroundProcess::load_helio_file_to_viwer(std::string file_path, std
 void HelioBackgroundProcess::set_helio_api_key(std::string api_key) { helio_api_key = api_key; }
 void HelioBackgroundProcess::set_gcode_result(Slic3r::GCodeProcessorResult* gcode_result) { m_gcode_result = gcode_result; }
 
+// Get recent simulations and optimizations for History dialog
+HelioQuery::GetRecentRunsResult HelioQuery::get_recent_runs(const std::string& helio_api_url, const std::string& helio_api_key)
+{
+    GetRecentRunsResult result;
+    result.success = false;
+
+    // GraphQL query for both optimizations and simulations
+    std::string query_body = R"({
+        "query": "query GetRecentRuns {\n  optimizations {\n    objects {\n      ... on Optimization {\n        id\n        name\n        status\n        optimizedGcodeWithThermalIndexesUrl\n        qualityMeanImprovement\n        qualityStdImprovement\n        gcode {\n          gcodeUrl\n          gcodeKey\n          material {\n            id\n            name\n          }\n          printer {\n            id\n            name\n          }\n          numberOfLayers\n          slicer\n        }\n      }\n    }\n  }\n  simulations {\n    objects {\n      ... on Simulation {\n        id\n        name\n        status\n        thermalIndexGcodeUrl\n        gcode {\n          gcodeUrl\n          gcodeKey\n          material {\n            id\n            name\n          }\n          printer {\n            id\n            name\n          }\n          numberOfLayers\n          slicer\n        }\n        printInfo {\n          printOutcome\n        }\n      }\n    }\n  }\n}",
+        "variables": {}
+    })";
+
+    auto http = Http::post(helio_api_url);
+
+    http.header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + helio_api_key)
+        .header("HelioAdditive-Client-Name", SLIC3R_APP_NAME)
+        .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
+        .set_post_body(query_body);
+
+    // Create temporary vectors to avoid issues with reference capture and reallocation
+    std::vector<OptimizationRun> temp_optimizations;
+    std::vector<SimulationRun> temp_simulations;
+    temp_optimizations.reserve(50);  // Reserve space to avoid reallocation
+    temp_simulations.reserve(50);
+
+    bool success = false;
+    std::string error_msg;
+    unsigned status_code = 0;
+
+    http.timeout_connect(20)
+        .timeout_max(100)
+        .on_complete([&temp_optimizations, &temp_simulations, &success, &error_msg, &status_code](std::string body, unsigned status) {
+            status_code = status;
+
+            BOOST_LOG_TRIVIAL(info) << "get_recent_runs response status: " << status;
+            BOOST_LOG_TRIVIAL(info) << "get_recent_runs response body length: " << body.length();
+
+            if (status != 200) {
+                success = false;
+                error_msg = "HTTP status: " + std::to_string(status);
+                BOOST_LOG_TRIVIAL(error) << "get_recent_runs failed with status: " << status;
+                return;
+            }
+
+            try {
+                nlohmann::json parsed = nlohmann::json::parse(body);
+
+                // Parse optimizations
+                if (parsed.contains("data") && parsed["data"].contains("optimizations")) {
+                    auto opts = parsed["data"]["optimizations"];
+                    BOOST_LOG_TRIVIAL(info) << "Found optimizations in response";
+                    if (opts.contains("objects") && opts["objects"].is_array()) {
+                        BOOST_LOG_TRIVIAL(info) << "Optimizations array size: " << opts["objects"].size();
+                        for (const auto& obj : opts["objects"]) {
+                            try {
+                                OptimizationRun run;
+
+                                if (obj.contains("id") && !obj["id"].is_null()) {
+                                    run.id = obj["id"].get<std::string>();
+                                }
+                                if (obj.contains("name") && !obj["name"].is_null()) {
+                                    run.name = obj["name"].get<std::string>();
+                                    // Parse timestamp from name
+                                    run.timestamp = HelioQuery::parse_timestamp_from_name(run.name);
+                                }
+                                if (obj.contains("status") && !obj["status"].is_null()) {
+                                    run.status = obj["status"].get<std::string>();
+                                }
+
+                                // Parse thermal index GCode URL
+                                if (obj.contains("optimizedGcodeWithThermalIndexesUrl") && !obj["optimizedGcodeWithThermalIndexesUrl"].is_null()) {
+                                    run.optimized_gcode_with_thermal_indexes_url = obj["optimizedGcodeWithThermalIndexesUrl"].get<std::string>();
+                                }
+
+                                // Parse quality improvements (these are strings like "HIGH", "LOW", "MEDIUM")
+                                if (obj.contains("qualityMeanImprovement") && !obj["qualityMeanImprovement"].is_null()) {
+                                    run.quality_mean_improvement = obj["qualityMeanImprovement"].get<std::string>();
+                                }
+                                if (obj.contains("qualityStdImprovement") && !obj["qualityStdImprovement"].is_null()) {
+                                    run.quality_std_improvement = obj["qualityStdImprovement"].get<std::string>();
+                                }
+
+                                // Parse gcode object
+                                if (obj.contains("gcode") && !obj["gcode"].is_null()) {
+                                    auto gcode = obj["gcode"];
+
+                                    if (gcode.contains("gcodeUrl") && !gcode["gcodeUrl"].is_null()) {
+                                        run.gcode_url = gcode["gcodeUrl"].get<std::string>();
+                                    }
+                                    if (gcode.contains("gcodeKey") && !gcode["gcodeKey"].is_null()) {
+                                        run.gcode_key = gcode["gcodeKey"].get<std::string>();
+                                    }
+                                    if (gcode.contains("numberOfLayers") && !gcode["numberOfLayers"].is_null()) {
+                                        run.number_of_layers = gcode["numberOfLayers"].get<int>();
+                                    }
+                                    if (gcode.contains("slicer") && !gcode["slicer"].is_null()) {
+                                        run.slicer = gcode["slicer"].get<std::string>();
+                                    }
+
+                                    // Parse material
+                                    if (gcode.contains("material") && !gcode["material"].is_null()) {
+                                        auto material = gcode["material"];
+                                        if (material.contains("id") && !material["id"].is_null()) {
+                                            run.material_id = material["id"].get<std::string>();
+                                        }
+                                        if (material.contains("name") && !material["name"].is_null()) {
+                                            run.material_name = material["name"].get<std::string>();
+                                        }
+                                    }
+
+                                    // Parse printer
+                                    if (gcode.contains("printer") && !gcode["printer"].is_null()) {
+                                        auto printer = gcode["printer"];
+                                        if (printer.contains("id") && !printer["id"].is_null()) {
+                                            run.printer_id = printer["id"].get<std::string>();
+                                        }
+                                        if (printer.contains("name") && !printer["name"].is_null()) {
+                                            run.printer_name = printer["name"].get<std::string>();
+                                        }
+                                    }
+                                }
+
+                                // Include all runs for now (debugging)
+                                BOOST_LOG_TRIVIAL(info) << "Parsed optimization: " << run.name << ", status: " << run.status;
+                                temp_optimizations.push_back(std::move(run));
+                            } catch (const std::exception& e) {
+                                BOOST_LOG_TRIVIAL(error) << "Failed to parse optimization: " << e.what();
+                            }
+                        }
+                    }
+                }
+
+                BOOST_LOG_TRIVIAL(info) << "Total optimizations parsed: " << temp_optimizations.size();
+
+                // Parse simulations
+                if (parsed.contains("data") && parsed["data"].contains("simulations")) {
+                    auto sims = parsed["data"]["simulations"];
+                    BOOST_LOG_TRIVIAL(info) << "Found simulations in response";
+                    if (sims.contains("objects") && sims["objects"].is_array()) {
+                        BOOST_LOG_TRIVIAL(info) << "Simulations array size: " << sims["objects"].size();
+                        for (const auto& obj : sims["objects"]) {
+                            try {
+                                SimulationRun run;
+
+                                if (obj.contains("id") && !obj["id"].is_null()) {
+                                    run.id = obj["id"].get<std::string>();
+                                }
+                                if (obj.contains("name") && !obj["name"].is_null()) {
+                                    run.name = obj["name"].get<std::string>();
+                                    // Parse timestamp from name
+                                    run.timestamp = HelioQuery::parse_timestamp_from_name(run.name);
+                                }
+                                if (obj.contains("status") && !obj["status"].is_null()) {
+                                    run.status = obj["status"].get<std::string>();
+                                }
+
+                                // Parse thermal index GCode URL
+                                if (obj.contains("thermalIndexGcodeUrl") && !obj["thermalIndexGcodeUrl"].is_null()) {
+                                    run.thermal_index_gcode_url = obj["thermalIndexGcodeUrl"].get<std::string>();
+                                }
+
+                                // Parse printInfo
+                                if (obj.contains("printInfo") && !obj["printInfo"].is_null()) {
+                                    auto printInfo = obj["printInfo"];
+                                    if (printInfo.contains("printOutcome") && !printInfo["printOutcome"].is_null()) {
+                                        run.print_outcome = printInfo["printOutcome"].get<std::string>();
+                                    }
+                                }
+
+                                // Parse gcode object
+                                if (obj.contains("gcode") && !obj["gcode"].is_null()) {
+                                    auto gcode = obj["gcode"];
+
+                                    if (gcode.contains("gcodeUrl") && !gcode["gcodeUrl"].is_null()) {
+                                        run.gcode_url = gcode["gcodeUrl"].get<std::string>();
+                                    }
+                                    if (gcode.contains("gcodeKey") && !gcode["gcodeKey"].is_null()) {
+                                        run.gcode_key = gcode["gcodeKey"].get<std::string>();
+                                    }
+                                    if (gcode.contains("numberOfLayers") && !gcode["numberOfLayers"].is_null()) {
+                                        run.number_of_layers = gcode["numberOfLayers"].get<int>();
+                                    }
+                                    if (gcode.contains("slicer") && !gcode["slicer"].is_null()) {
+                                        run.slicer = gcode["slicer"].get<std::string>();
+                                    }
+
+                                    // Parse material
+                                    if (gcode.contains("material") && !gcode["material"].is_null()) {
+                                        auto material = gcode["material"];
+                                        if (material.contains("id") && !material["id"].is_null()) {
+                                            run.material_id = material["id"].get<std::string>();
+                                        }
+                                        if (material.contains("name") && !material["name"].is_null()) {
+                                            run.material_name = material["name"].get<std::string>();
+                                        }
+                                    }
+
+                                    // Parse printer
+                                    if (gcode.contains("printer") && !gcode["printer"].is_null()) {
+                                        auto printer = gcode["printer"];
+                                        if (printer.contains("id") && !printer["id"].is_null()) {
+                                            run.printer_id = printer["id"].get<std::string>();
+                                        }
+                                        if (printer.contains("name") && !printer["name"].is_null()) {
+                                            run.printer_name = printer["name"].get<std::string>();
+                                        }
+                                    }
+                                }
+
+                                // Include all runs for now (debugging)
+                                BOOST_LOG_TRIVIAL(info) << "Parsed simulation: " << run.name << ", status: " << run.status;
+                                temp_simulations.push_back(std::move(run));
+                            } catch (const std::exception& e) {
+                                BOOST_LOG_TRIVIAL(error) << "Failed to parse simulation: " << e.what();
+                            }
+                        }
+                    }
+                }
+
+                BOOST_LOG_TRIVIAL(info) << "Total simulations parsed: " << temp_simulations.size();
+
+                success = true;
+
+            } catch (const std::exception& e) {
+                success = false;
+                error_msg = std::string("JSON parse error: ") + e.what();
+                BOOST_LOG_TRIVIAL(error) << "Failed to parse get_recent_runs response: " << e.what();
+            }
+        })
+        .on_error([&success, &error_msg, &status_code](std::string body, std::string error, unsigned status) {
+            success = false;
+            error_msg = error;
+            status_code = status;
+            BOOST_LOG_TRIVIAL(error) << "get_recent_runs error: " << error << ", status: " << status;
+        })
+        .perform_sync();
+
+    // Now safely move the data to result
+    result.success = success;
+    result.error = error_msg;
+    result.status = status_code;
+
+    if (success) {
+        // Sort by timestamp descending (newest first)
+        try {
+            std::sort(temp_optimizations.begin(), temp_optimizations.end(),
+                [](const OptimizationRun& a, const OptimizationRun& b) {
+                    return a.timestamp > b.timestamp;
+                });
+
+            std::sort(temp_simulations.begin(), temp_simulations.end(),
+                [](const SimulationRun& a, const SimulationRun& b) {
+                    return a.timestamp > b.timestamp;
+                });
+        } catch (const std::exception& e) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to sort recent runs: " << e.what();
+        }
+
+        // Move the sorted data to result
+        result.optimizations = std::move(temp_optimizations);
+        result.simulations = std::move(temp_simulations);
+
+        BOOST_LOG_TRIVIAL(info) << "get_recent_runs completed: " << result.optimizations.size()
+                                << " optimizations, " << result.simulations.size() << " simulations";
+    }
+
+    return result;
+}
+
+// Helper function to parse timestamp from run name
+std::chrono::system_clock::time_point HelioQuery::parse_timestamp_from_name(const std::string& name)
+{
+    try {
+        // Parse timestamp from name format: "BambuSlicer 2026-01-23T07:52:27"
+        // Extract the ISO timestamp using simple string parsing
+        size_t pos = name.find_last_of(' ');
+        if (pos != std::string::npos && pos + 1 < name.length()) {
+            std::string timestamp_str = name.substr(pos + 1);
+
+            // Parse ISO 8601 format: YYYY-MM-DDTHH:MM:SS
+            if (timestamp_str.length() >= 19) {
+                std::tm tm = {};
+                tm.tm_year = std::stoi(timestamp_str.substr(0, 4)) - 1900;
+                tm.tm_mon = std::stoi(timestamp_str.substr(5, 2)) - 1;
+                tm.tm_mday = std::stoi(timestamp_str.substr(8, 2));
+                tm.tm_hour = std::stoi(timestamp_str.substr(11, 2));
+                tm.tm_min = std::stoi(timestamp_str.substr(14, 2));
+                tm.tm_sec = std::stoi(timestamp_str.substr(17, 2));
+                tm.tm_isdst = 0; // UTC has no DST
+
+                // Parse as UTC time (timestamps from API are in UTC)
+                std::time_t time;
+#ifdef _WIN32
+                time = _mkgmtime(&tm);
+#else
+                time = timegm(&tm);
+#endif
+                if (time != -1) {
+                    return std::chrono::system_clock::from_time_t(time);
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to parse timestamp from name: " << name << ", error: " << e.what();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to parse timestamp from name: " << name;
+    }
+
+    // If parsing fails, return current time
+    return std::chrono::system_clock::now();
+}
+
 } // namespace Slic3r

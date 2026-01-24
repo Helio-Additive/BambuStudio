@@ -1,4 +1,5 @@
 #include "HelioReleaseNote.hpp"
+#include "HelioHistoryDialog.hpp"
 #include "I18N.hpp"
 
 #include "libslic3r/Utils.hpp"
@@ -652,7 +653,44 @@ void HelioStatementDialog::create_pat_page()
     copy_pat_button->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_HAND); e.Skip(); });
     copy_pat_button->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_ARROW); e.Skip(); });
     copy_pat_button->Hide(); // Hidden by default, will be shown when PAT is available
-    
+
+    // History button - opens recent runs dialog
+    StateColor btn_bg_history(std::pair<wxColour, int>(wxColour(120, 125, 135), StateColor::Hovered),
+                              std::pair<wxColour, int>(wxColour(100, 105, 115), StateColor::Normal));
+
+    Button* history_button = new Button(page_pat_panel, _L("History"));
+    history_button->SetBackgroundColor(btn_bg_history);
+    history_button->SetBorderColor(wxColour(150, 155, 165));
+    StateColor history_btn_text(std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Disabled),
+                                std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Hovered),
+                                std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Pressed),
+                                std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Enabled),
+                                std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Normal));
+    history_button->SetTextColor(history_btn_text);
+    history_button->SetTextColorNormal(wxColour(255, 255, 254));
+    history_button->SetFont(Label::Body_13);
+    history_button->SetSize(wxSize(FromDIP(120), FromDIP(32)));
+    history_button->SetMinSize(wxSize(FromDIP(120), FromDIP(32)));
+    history_button->SetCornerRadius(FromDIP(4));
+    history_button->SetToolTip(_L("View and download recent optimizations and simulations"));
+    history_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) {
+        try {
+            BOOST_LOG_TRIVIAL(info) << "History button clicked, creating dialog...";
+            HelioHistoryDialog dlg(this);
+            BOOST_LOG_TRIVIAL(info) << "Dialog created, showing modal...";
+            dlg.ShowModal();
+            BOOST_LOG_TRIVIAL(info) << "Dialog closed";
+        } catch (const std::exception& ex) {
+            BOOST_LOG_TRIVIAL(error) << "Error opening History dialog: " << ex.what();
+            wxMessageBox(wxString::Format("Error opening History dialog: %s", ex.what()), "Error", wxOK | wxICON_ERROR);
+        } catch (...) {
+            BOOST_LOG_TRIVIAL(error) << "Unknown error opening History dialog";
+            wxMessageBox("Unknown error opening History dialog", "Error", wxOK | wxICON_ERROR);
+        }
+    });
+    history_button->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_HAND); e.Skip(); });
+    history_button->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_ARROW); e.Skip(); });
+
     // Legacy controls kept for backward compatibility with show_pat_option() method
     // These are always hidden in the new design but still referenced in show_pat_option()
     // Create them with zero size and hidden to prevent any visual artifacts
@@ -734,12 +772,14 @@ void HelioStatementDialog::create_pat_page()
     content_sizer->Add(success_description, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(32));
     
-    // Button row with copy PAT button
+    // Button row with copy PAT and history buttons
     wxBoxSizer* button_row = new wxBoxSizer(wxHORIZONTAL);
     button_row->Add(run_optimization_button, 0, wxALIGN_CENTER, 0);
     button_row->Add(0, 0, 0, wxLEFT, FromDIP(12));
     button_row->Add(copy_pat_button, 0, wxALIGN_CENTER_VERTICAL, 0);
-    
+    button_row->Add(0, 0, 0, wxLEFT, FromDIP(12));
+    button_row->Add(history_button, 0, wxALIGN_CENTER_VERTICAL, 0);
+
     content_sizer->Add(button_row, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(40));
     content_sizer->Add(helio_links_sizer, 0, wxALIGN_CENTER, 0);
