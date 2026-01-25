@@ -1,5 +1,6 @@
 #include "HelioReleaseNote.hpp"
 #include "HelioHistoryDialog.hpp"
+#include "HelioPreFlightDialog.hpp"
 #include "I18N.hpp"
 
 #include "libslic3r/Utils.hpp"
@@ -691,6 +692,43 @@ void HelioStatementDialog::create_pat_page()
     history_button->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_HAND); e.Skip(); });
     history_button->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_ARROW); e.Skip(); });
 
+    // Pre-Flight Check button - opens pre-flight diagnostics dialog
+    StateColor btn_bg_preflight(std::pair<wxColour, int>(wxColour(120, 125, 135), StateColor::Hovered),
+                                 std::pair<wxColour, int>(wxColour(100, 105, 115), StateColor::Normal));
+
+    Button* preflight_button = new Button(page_pat_panel, _L("Pre-Flight Check"));
+    preflight_button->SetBackgroundColor(btn_bg_preflight);
+    preflight_button->SetBorderColor(wxColour(150, 155, 165));
+    StateColor preflight_btn_text(std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Disabled),
+                                  std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Hovered),
+                                  std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Pressed),
+                                  std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Enabled),
+                                  std::pair<wxColour, int>(wxColour(255, 255, 254), StateColor::Normal));
+    preflight_button->SetTextColor(preflight_btn_text);
+    preflight_button->SetTextColorNormal(wxColour(255, 255, 254));
+    preflight_button->SetFont(Label::Body_13);
+    preflight_button->SetSize(wxSize(FromDIP(140), FromDIP(32)));
+    preflight_button->SetMinSize(wxSize(FromDIP(140), FromDIP(32)));
+    preflight_button->SetCornerRadius(FromDIP(4));
+    preflight_button->SetToolTip(_L("Run diagnostic checks before optimization/simulation"));
+    preflight_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) {
+        try {
+            BOOST_LOG_TRIVIAL(info) << "Pre-Flight Check button clicked, creating dialog...";
+            HelioPreFlightDialog dlg(this);
+            BOOST_LOG_TRIVIAL(info) << "Dialog created, showing modal...";
+            dlg.ShowModal();
+            BOOST_LOG_TRIVIAL(info) << "Dialog closed";
+        } catch (const std::exception& ex) {
+            BOOST_LOG_TRIVIAL(error) << "Error opening Pre-Flight Check dialog: " << ex.what();
+            wxMessageBox(wxString::Format("Error opening Pre-Flight Check dialog: %s", ex.what()), "Error", wxOK | wxICON_ERROR);
+        } catch (...) {
+            BOOST_LOG_TRIVIAL(error) << "Unknown error opening Pre-Flight Check dialog";
+            wxMessageBox("Unknown error opening Pre-Flight Check dialog", "Error", wxOK | wxICON_ERROR);
+        }
+    });
+    preflight_button->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_HAND); e.Skip(); });
+    preflight_button->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_ARROW); e.Skip(); });
+
     // Legacy controls kept for backward compatibility with show_pat_option() method
     // These are always hidden in the new design but still referenced in show_pat_option()
     // Create them with zero size and hidden to prevent any visual artifacts
@@ -772,13 +810,15 @@ void HelioStatementDialog::create_pat_page()
     content_sizer->Add(success_description, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(32));
     
-    // Button row with copy PAT and history buttons
+    // Button row with copy PAT, history, and pre-flight check buttons
     wxBoxSizer* button_row = new wxBoxSizer(wxHORIZONTAL);
     button_row->Add(run_optimization_button, 0, wxALIGN_CENTER, 0);
     button_row->Add(0, 0, 0, wxLEFT, FromDIP(12));
     button_row->Add(copy_pat_button, 0, wxALIGN_CENTER_VERTICAL, 0);
     button_row->Add(0, 0, 0, wxLEFT, FromDIP(12));
     button_row->Add(history_button, 0, wxALIGN_CENTER_VERTICAL, 0);
+    button_row->Add(0, 0, 0, wxLEFT, FromDIP(12));
+    button_row->Add(preflight_button, 0, wxALIGN_CENTER_VERTICAL, 0);
 
     content_sizer->Add(button_row, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(40));

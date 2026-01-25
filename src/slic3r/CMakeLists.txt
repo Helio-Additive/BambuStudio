@@ -503,6 +503,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/HelioReleaseNote.cpp
     GUI/HelioHistoryDialog.hpp
     GUI/HelioHistoryDialog.cpp
+    GUI/HelioPreFlightDialog.hpp
+    GUI/HelioPreFlightDialog.cpp
     GUI/SingleChoiceDialog.hpp
     GUI/SingleChoiceDialog.cpp
     GUI/CaliHistoryDialog.hpp
