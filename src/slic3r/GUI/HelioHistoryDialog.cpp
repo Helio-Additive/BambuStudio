@@ -28,6 +28,7 @@
 #include <iomanip>
 #include <sstream>
 #include <regex>
+#include <thread>
 
 namespace Slic3r { namespace GUI {
 
@@ -72,131 +73,107 @@ HelioInputDialogTheme HelioHistoryDialog::get_theme() const
 }
 
 HelioHistoryDialog::HelioHistoryDialog(wxWindow* parent)
-    : DPIDialog(parent ? parent : static_cast<wxWindow*>(wxGetApp().mainframe),
+    : DPIDialog(static_cast<wxWindow*>(wxGetApp().mainframe),
                 wxID_ANY,
                 _L("Recent Helio Runs"),
                 wxDefaultPosition,
-                wxSize(FromDIP(700), FromDIP(600)),
+                wxDefaultSize,
                 wxCAPTION | wxCLOSE_BOX)
 {
+    shared_ptr = std::make_shared<int>(0);
+
+    // Set Helio icon
     try {
-        shared_ptr = std::make_shared<int>(0);
-
-        // Set Helio icon
-        try {
-            wxBitmap bmp = create_scaled_bitmap("helio_icon", this, 32);
-            if (bmp.IsOk()) {
-                wxIcon icon;
-                icon.CopyFromBitmap(bmp);
-                SetIcon(icon);
-            }
-        } catch (...) {
-            // Icon loading failed, continue anyway
+        wxBitmap bmp = create_scaled_bitmap("helio_icon", this, 32);
+        if (bmp.IsOk()) {
+            wxIcon icon;
+            icon.CopyFromBitmap(bmp);
+            SetIcon(icon);
         }
-
-        // Use Helio dark background
-        SetBackgroundColour(HELIO_BG_BASE);
-
-        // Bind to Helio completion events to close this dialog when sim/opt completes
-        Bind(EVT_HELIO_PROCESSING_COMPLETED, &HelioHistoryDialog::on_helio_completion, this);
-
-        create_ui();
-
-        // Load recent runs from backend
-        load_recent_runs();
-
-    } catch (const std::exception& e) {
-        BOOST_LOG_TRIVIAL(error) << "HelioHistoryDialog constructor error: " << e.what();
-        throw;
+    } catch (...) {
+        // Icon loading failed, continue anyway
     }
+
+    // Use Helio dark background
+    SetBackgroundColour(HELIO_BG_BASE);
+
+    create_ui();
+
+    // Set size after UI is created (FromDIP is now safe to call)
+    SetMinSize(wxSize(FromDIP(700), FromDIP(600)));
+    SetSize(wxSize(FromDIP(700), FromDIP(600)));
+
+    // Load recent runs after UI is created
+    load_recent_runs();
 }
 
 HelioHistoryDialog::~HelioHistoryDialog()
 {
-    // Unbind the event handler
-    Unbind(EVT_HELIO_PROCESSING_COMPLETED, &HelioHistoryDialog::on_helio_completion, this);
+    // Signal any async callbacks to stop
+    shared_ptr.reset();
 }
 
 void HelioHistoryDialog::create_ui()
 {
-    try {
-        m_main_sizer = new wxBoxSizer(wxVERTICAL);
-        if (!m_main_sizer) {
-            BOOST_LOG_TRIVIAL(error) << "Failed to create main sizer";
-            return;
-        }
+    m_main_sizer = new wxBoxSizer(wxVERTICAL);
 
-        // Create header with refresh button
-        create_header(m_main_sizer);
+    // Create header with refresh button
+    create_header(m_main_sizer);
 
-        // Create scrollable content area
-        m_scroll_window = new wxScrolledWindow(this, wxID_ANY);
-        if (!m_scroll_window) {
-            BOOST_LOG_TRIVIAL(error) << "Failed to create scroll window";
-            return;
-        }
-        m_scroll_window->SetBackgroundColour(HELIO_BG_BASE);
-        m_scroll_window->SetScrollRate(0, 20);
+    // Create scrollable content area
+    m_scroll_window = new wxScrolledWindow(this, wxID_ANY);
+    m_scroll_window->SetBackgroundColour(HELIO_BG_BASE);
+    m_scroll_window->SetScrollRate(0, 20);
 
-        m_content_sizer = new wxBoxSizer(wxVERTICAL);
-        if (!m_content_sizer) {
-            BOOST_LOG_TRIVIAL(error) << "Failed to create content sizer";
-            return;
-        }
-        m_scroll_window->SetSizer(m_content_sizer);
+    m_content_sizer = new wxBoxSizer(wxVERTICAL);
+    m_scroll_window->SetSizer(m_content_sizer);
 
-        m_main_sizer->Add(m_scroll_window, 1, wxEXPAND | wxALL, FromDIP(16));
+    m_main_sizer->Add(m_scroll_window, 1, wxEXPAND | wxALL, FromDIP(16));
 
-        // Create loading state (initially visible)
-        create_loading_state();
+    // Create loading state (initially visible)
+    create_loading_state();
 
-        // Create empty state (initially hidden)
-        create_empty_state();
+    // Create empty state (initially hidden)
+    create_empty_state();
 
-        // Create content panel (initially hidden)
-        m_content_panel = new wxPanel(m_scroll_window, wxID_ANY);
-        if (m_content_panel) {
-            m_content_panel->SetBackgroundColour(HELIO_BG_BASE);
-            m_content_panel->Hide();
-        }
-
-        // Close button at bottom
-        auto* button_sizer = new wxBoxSizer(wxHORIZONTAL);
-        button_sizer->AddStretchSpacer();
-
-        StateColor close_btn_bg(
-            std::pair<wxColour, int>(HELIO_CARD_HIGHLIGHT, StateColor::Hovered),
-            std::pair<wxColour, int>(HELIO_CARD_BG, StateColor::Normal));
-        StateColor close_btn_border(
-            std::pair<wxColour, int>(HELIO_BORDER, StateColor::Normal));
-        StateColor close_btn_text(
-            std::pair<wxColour, int>(HELIO_TEXT, StateColor::Normal));
-
-        m_button_close = new Button(this, _L("Close"));
-        if (m_button_close) {
-            m_button_close->SetBackgroundColor(close_btn_bg);
-            m_button_close->SetBorderColor(close_btn_border);
-            m_button_close->SetTextColor(close_btn_text);
-            m_button_close->SetMinSize(wxSize(FromDIP(100), FromDIP(36)));
-            m_button_close->SetCornerRadius(FromDIP(6));
-            m_button_close->Bind(wxEVT_LEFT_DOWN, &HelioHistoryDialog::on_close, this);
-
-            button_sizer->Add(m_button_close, 0, wxALL, FromDIP(8));
-        }
-
-        m_main_sizer->Add(button_sizer, 0, wxEXPAND);
-
-        SetSizer(m_main_sizer);
-        SetMinSize(wxSize(FromDIP(700), FromDIP(600)));
-        Layout();
-        Fit();
-
-        BOOST_LOG_TRIVIAL(info) << "HelioHistoryDialog UI created successfully";
-
-    } catch (const std::exception& e) {
-        BOOST_LOG_TRIVIAL(error) << "HelioHistoryDialog::create_ui error: " << e.what();
-        throw;
+    // Create content panel (initially hidden)
+    m_content_panel = new wxPanel(m_scroll_window, wxID_ANY);
+    if (m_content_panel) {
+        m_content_panel->SetBackgroundColour(HELIO_BG_BASE);
+        m_content_panel->Hide();
     }
+
+    // Close button at bottom
+    auto* button_sizer = new wxBoxSizer(wxHORIZONTAL);
+    button_sizer->AddStretchSpacer();
+
+    StateColor close_btn_bg(
+        std::pair<wxColour, int>(HELIO_CARD_HIGHLIGHT, StateColor::Hovered),
+        std::pair<wxColour, int>(HELIO_CARD_BG, StateColor::Normal));
+    StateColor close_btn_border(
+        std::pair<wxColour, int>(HELIO_BORDER, StateColor::Normal));
+    StateColor close_btn_text(
+        std::pair<wxColour, int>(HELIO_TEXT, StateColor::Normal));
+
+    m_button_close = new Button(this, _L("Close"));
+    if (m_button_close) {
+        m_button_close->SetBackgroundColor(close_btn_bg);
+        m_button_close->SetBorderColor(close_btn_border);
+        m_button_close->SetTextColor(close_btn_text);
+        m_button_close->SetMinSize(wxSize(FromDIP(100), FromDIP(36)));
+        m_button_close->SetCornerRadius(FromDIP(6));
+        m_button_close->Bind(wxEVT_LEFT_DOWN, &HelioHistoryDialog::on_close, this);
+
+        button_sizer->Add(m_button_close, 0, wxALL, FromDIP(8));
+    }
+
+    m_main_sizer->Add(button_sizer, 0, wxEXPAND);
+
+    SetSizer(m_main_sizer);
+    Layout();
+    Fit();
+
+    BOOST_LOG_TRIVIAL(info) << "HelioHistoryDialog UI created successfully";
 }
 
 void HelioHistoryDialog::create_header(wxBoxSizer* parent_sizer)
@@ -291,7 +268,7 @@ void HelioHistoryDialog::load_recent_runs()
             return;
         }
 
-        // Query recent runs from backend
+        // Query recent runs from backend (synchronous - simpler and cross-platform safe)
         BOOST_LOG_TRIVIAL(info) << "HelioHistoryDialog: Querying recent runs from backend...";
         auto result = HelioQuery::get_recent_runs(helio_api_url, helio_pat);
 
@@ -326,6 +303,7 @@ void HelioHistoryDialog::load_recent_runs()
         }
     } catch (const std::exception& e) {
         // Catch any errors and show empty state
+        BOOST_LOG_TRIVIAL(error) << "HelioHistoryDialog: Exception - " << e.what();
         m_optimizations.clear();
         m_simulations.clear();
         show_empty_state();
@@ -481,7 +459,7 @@ wxPanel* HelioHistoryDialog::create_run_card(wxWindow* parent, const HelioQuery:
     auto* top_row = new wxBoxSizer(wxHORIZONTAL);
 
     auto* name_label = new Label(card, Label::Body_14);
-    name_label->SetLabel("📦  " + wxString(run.name));
+    name_label->SetLabel(wxString(run.name));
     name_label->SetForegroundColour(HELIO_TEXT);
     top_row->Add(name_label, 1, wxALIGN_CENTER_VERTICAL);
 
@@ -496,22 +474,22 @@ wxPanel* HelioHistoryDialog::create_run_card(wxWindow* parent, const HelioQuery:
     auto* meta_sizer = new wxBoxSizer(wxHORIZONTAL);
 
     auto* printer_label = new Label(card, Label::Body_12);
-    printer_label->SetLabel("🖨️  " + wxString(run.printer_name));
+    printer_label->SetLabel(wxString(run.printer_name));
     printer_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(printer_label, 0, wxRIGHT, FromDIP(16));
 
     auto* material_label = new Label(card, Label::Body_12);
-    material_label->SetLabel("🎨  " + wxString(run.material_name));
+    material_label->SetLabel(wxString(run.material_name));
     material_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(material_label, 0, wxRIGHT, FromDIP(16));
 
     auto* layers_label = new Label(card, Label::Body_12);
-    layers_label->SetLabel(wxString::Format("📊  %d layers", run.number_of_layers));
+    layers_label->SetLabel(wxString::Format("%d layers", run.number_of_layers));
     layers_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(layers_label, 0, wxRIGHT, FromDIP(16));
 
     auto* time_label = new Label(card, Label::Body_12);
-    time_label->SetLabel("⏱️  " + format_time_ago(run.timestamp));
+    time_label->SetLabel(format_time_ago(run.timestamp));
     time_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(time_label, 0);
 
@@ -520,7 +498,7 @@ wxPanel* HelioHistoryDialog::create_run_card(wxWindow* parent, const HelioQuery:
     // Quality improvement
     if (!run.quality_mean_improvement.empty() || !run.quality_std_improvement.empty()) {
         auto* quality_label = new Label(card, Label::Body_12);
-        quality_label->SetLabel(wxString::Format("💎  Quality Improvement: %s  Consistency Improvement: %s",
+        quality_label->SetLabel(wxString::Format("Quality: %s | Consistency: %s",
             run.quality_mean_improvement, run.quality_std_improvement));
         quality_label->SetForegroundColour(HELIO_SUCCESS);
         card_sizer->Add(quality_label, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
@@ -581,7 +559,7 @@ wxPanel* HelioHistoryDialog::create_run_card(wxWindow* parent, const HelioQuery:
     auto* top_row = new wxBoxSizer(wxHORIZONTAL);
 
     auto* name_label = new Label(card, Label::Body_14);
-    name_label->SetLabel("🔬  " + wxString(run.name));
+    name_label->SetLabel(wxString(run.name));
     name_label->SetForegroundColour(HELIO_TEXT);
     top_row->Add(name_label, 1, wxALIGN_CENTER_VERTICAL);
 
@@ -596,22 +574,22 @@ wxPanel* HelioHistoryDialog::create_run_card(wxWindow* parent, const HelioQuery:
     auto* meta_sizer = new wxBoxSizer(wxHORIZONTAL);
 
     auto* printer_label = new Label(card, Label::Body_12);
-    printer_label->SetLabel("🖨️  " + wxString(run.printer_name));
+    printer_label->SetLabel(wxString(run.printer_name));
     printer_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(printer_label, 0, wxRIGHT, FromDIP(16));
 
     auto* material_label = new Label(card, Label::Body_12);
-    material_label->SetLabel("🎨  " + wxString(run.material_name));
+    material_label->SetLabel(wxString(run.material_name));
     material_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(material_label, 0, wxRIGHT, FromDIP(16));
 
     auto* layers_label = new Label(card, Label::Body_12);
-    layers_label->SetLabel(wxString::Format("📊  %d layers", run.number_of_layers));
+    layers_label->SetLabel(wxString::Format("%d layers", run.number_of_layers));
     layers_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(layers_label, 0, wxRIGHT, FromDIP(16));
 
     auto* time_label = new Label(card, Label::Body_12);
-    time_label->SetLabel("⏱️  " + format_time_ago(run.timestamp));
+    time_label->SetLabel(format_time_ago(run.timestamp));
     time_label->SetForegroundColour(HELIO_MUTED);
     meta_sizer->Add(time_label, 0);
 
@@ -893,13 +871,13 @@ wxColour HelioHistoryDialog::get_status_color(const std::string& status)
 wxString HelioHistoryDialog::get_print_outcome_text(const std::string& outcome)
 {
     if (outcome == "WILL_PRINT") {
-        return "✅  Print Outcome: WILL_PRINT";
+        return "Print Outcome: WILL_PRINT";
     } else if (outcome == "MAY_PRINT") {
-        return "⚠️  Print Outcome: MAY_PRINT";
+        return "Print Outcome: MAY_PRINT";
     } else if (outcome == "LIKELY_FAIL") {
-        return "❌  Print Outcome: LIKELY_FAIL";
+        return "Print Outcome: LIKELY_FAIL";
     } else {
-        return "ℹ️  Print Outcome: " + wxString(outcome);
+        return "Print Outcome: " + wxString(outcome);
     }
 }
 

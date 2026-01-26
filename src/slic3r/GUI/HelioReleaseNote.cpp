@@ -674,19 +674,24 @@ void HelioStatementDialog::create_pat_page()
     history_button->SetCornerRadius(FromDIP(4));
     history_button->SetToolTip(_L("View and download recent optimizations and simulations"));
     history_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) {
-        try {
-            BOOST_LOG_TRIVIAL(info) << "History button clicked, creating dialog...";
-            HelioHistoryDialog dlg(this);
-            BOOST_LOG_TRIVIAL(info) << "Dialog created, showing modal...";
-            dlg.ShowModal();
-            BOOST_LOG_TRIVIAL(info) << "Dialog closed";
-        } catch (const std::exception& ex) {
-            BOOST_LOG_TRIVIAL(error) << "Error opening History dialog: " << ex.what();
-            wxMessageBox(wxString::Format("Error opening History dialog: %s", ex.what()), "Error", wxOK | wxICON_ERROR);
-        } catch (...) {
-            BOOST_LOG_TRIVIAL(error) << "Unknown error opening History dialog";
-            wxMessageBox("Unknown error opening History dialog", "Error", wxOK | wxICON_ERROR);
-        }
+        // Use CallAfter to defer modal dialog creation until after mouse event processing
+        // This prevents crashes on Windows where opening a modal during mouse-down corrupts mouse capture state
+        // Note: Do NOT call e.Skip() here - it causes multiple triggers on Mac
+        CallAfter([this]() {
+            try {
+                BOOST_LOG_TRIVIAL(info) << "History button clicked, creating dialog...";
+                HelioHistoryDialog dlg(nullptr);  // Use mainframe as parent for cross-platform compatibility
+                BOOST_LOG_TRIVIAL(info) << "Dialog created, showing modal...";
+                dlg.ShowModal();
+                BOOST_LOG_TRIVIAL(info) << "Dialog closed";
+            } catch (const std::exception& ex) {
+                BOOST_LOG_TRIVIAL(error) << "Error opening History dialog: " << ex.what();
+                wxMessageBox(wxString::Format("Error opening History dialog: %s", ex.what()), "Error", wxOK | wxICON_ERROR);
+            } catch (...) {
+                BOOST_LOG_TRIVIAL(error) << "Unknown error opening History dialog";
+                wxMessageBox("Unknown error opening History dialog", "Error", wxOK | wxICON_ERROR);
+            }
+        });
     });
     history_button->Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_HAND); e.Skip(); });
     history_button->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent& e) { SetCursor(wxCURSOR_ARROW); e.Skip(); });
