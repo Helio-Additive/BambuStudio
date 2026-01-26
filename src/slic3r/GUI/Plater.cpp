@@ -11512,14 +11512,34 @@ int Plater::priv::update_helio_background_process(std::string& printer_id, std::
     //    return -1;
     //}
 
-    /*print sequence = by object*/
-    if (!wxGetApp().is_helio_enable()) {
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "print sequence = by object";
-        GUI::MessageDialog msgdialog(nullptr, _L("Helio functions do not support the print sequence of \"ByObject\"."), "", wxICON_WARNING | wxOK);
-        msgdialog.ShowModal();
-        return -1;
+    /*infill combination warning*/
+    auto cfg = q->get_partplate_list().get_curr_plate()->config();
+    bool infill_combination_enabled = false;
+    if (cfg->has("infill_combination")) {
+        infill_combination_enabled = cfg->option<ConfigOptionBool>("infill_combination")->value;
+    } else {
+        // Fallback to print preset config if not in plate config
+        const DynamicPrintConfig& print_config = preset_bundle->prints.get_edited_preset().config;
+        if (print_config.has("infill_combination")) {
+            infill_combination_enabled = print_config.option<ConfigOptionBool>("infill_combination")->value;
+        }
     }
 
+    if (infill_combination_enabled) {
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " infill_combination is enabled - showing warning";
+        GUI::MessageDialog msgdialog(nullptr,
+            _L("Warning: Infill combination is currently unsupported by Helio.\n\n"
+               "Proceeding with this setting enabled may return erroneous results.\n\n"
+               "Do you want to continue anyway?"),
+            _L("Helio Warning"),
+            wxICON_WARNING | wxYES_NO);
+
+        if (msgdialog.ShowModal() != wxID_YES) {
+            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " user cancelled due to infill_combination warning";
+            return -1;
+        }
+        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " user proceeded despite infill_combination warning";
+    }
 
     //partplate_list.get_curr_plate()->update_helio_apply_result_invalid(false);
     notification_manager->close_notification_of_type(NotificationType::HelioSlicingError);
