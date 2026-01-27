@@ -1204,7 +1204,31 @@ wxPanel* HelioInputDialog::create_card_panel(wxWindow* parent, const wxString& t
 void HelioInputDialog::update_mode_card_styling(int selected_action)
 {
     auto theme = get_theme();
-    
+
+    // Helper lambda for platform-specific transparency handling
+    auto make_transparent = [](wxWindow* widget, wxWindow* card_panel, bool is_selected, bool is_purple) {
+        if (!widget) return;
+#ifdef __WXMSW__
+        // Windows: wxStaticText/wxStaticBitmap ignore transparency, match parent's painted color exactly
+        wxColour bg = card_panel ? card_panel->GetBackgroundColour() : *wxWHITE;
+        if (is_selected) {
+            auto clamp = [](int v) { return std::max(0, std::min(255, v)); };
+            if (is_purple) {
+                // Purple (simulation) brightening: RGB + (18, 8, 18)
+                bg = wxColour(clamp(bg.Red() + 18), clamp(bg.Green() + 8), clamp(bg.Blue() + 18));
+            } else {
+                // Blue (optimization) brightening: RGB + (8, 12, 22)
+                bg = wxColour(clamp(bg.Red() + 8), clamp(bg.Green() + 12), clamp(bg.Blue() + 22));
+            }
+        }
+        widget->SetBackgroundColour(bg);
+#else
+        // macOS: true transparency works
+        widget->SetBackgroundColour(wxNullColour);
+        widget->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#endif
+    };
+
     // Update simulation card
     if (simulation_card_panel) {
         HelioModeCardPanel* sim_card = dynamic_cast<HelioModeCardPanel*>(simulation_card_panel);
@@ -1214,21 +1238,16 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
             sim_card->SetBorderColour(theme.border);
             sim_card->SetBackgroundColour(theme.card);
         }
-        // Get the ACTUAL background color after card updates (may be tinted if selected)
-        auto sim_bg = simulation_card_panel->GetBackgroundColour();
-        if (simulation_card_title) {
-            simulation_card_title->SetBackgroundColour(sim_bg);
-            simulation_card_title->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
-        if (simulation_card_subtitle) {
-            simulation_card_subtitle->SetBackgroundColour(sim_bg);
-            simulation_card_subtitle->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
+        // Apply platform-specific transparency to labels
+        bool sim_selected = (selected_action == 0);
+        make_transparent(simulation_card_title, simulation_card_panel, sim_selected, true);
+        make_transparent(simulation_card_subtitle, simulation_card_panel, sim_selected, true);
     }
     
     if (simulation_mode_icon) {
         simulation_mode_icon->SetBitmap(selected_action == 0 ? simulation_icon_color : simulation_icon_gray);
         simulation_mode_icon->SetSize(wxSize(FromDIP(28), FromDIP(28)));  // Force size to prevent resizing
+        make_transparent(simulation_mode_icon, simulation_card_panel, selected_action == 0, true);
         simulation_mode_icon->Refresh();
     }
 
@@ -1241,21 +1260,16 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
             opt_card->SetBorderColour(theme.border);
             opt_card->SetBackgroundColour(theme.card);
         }
-        // Get the ACTUAL background color after card updates (may be tinted if selected)
-        auto opt_bg = optimization_card_panel->GetBackgroundColour();
-        if (optimization_card_title) {
-            optimization_card_title->SetBackgroundColour(opt_bg);
-            optimization_card_title->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
-        if (optimization_card_subtitle) {
-            optimization_card_subtitle->SetBackgroundColour(opt_bg);
-            optimization_card_subtitle->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
+        // Apply platform-specific transparency to labels
+        bool opt_selected = (selected_action == 1);
+        make_transparent(optimization_card_title, optimization_card_panel, opt_selected, false);
+        make_transparent(optimization_card_subtitle, optimization_card_panel, opt_selected, false);
     }
     
     if (optimization_mode_icon) {
         optimization_mode_icon->SetBitmap(selected_action == 1 ? optimization_icon_color : optimization_icon_gray);
         optimization_mode_icon->SetSize(wxSize(FromDIP(28), FromDIP(28)));  // Force size to prevent resizing
+        make_transparent(optimization_mode_icon, optimization_card_panel, selected_action == 1, false);
         optimization_mode_icon->Refresh();
     }
     
@@ -1717,8 +1731,12 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
 
     buy_now_link = new LinkLabel(card_account_status, _L("Manage Account"), "https://wiki.helioadditive.com/");
     buy_now_link->SeLinkLabelFColour(wxColour(175, 124, 255));
+#ifdef __WXMSW__
+    buy_now_link->SeLinkLabelBColour(card_account_status->GetBackgroundColour());
+#else
+    buy_now_link->SeLinkLabelBColour(wxNullColour);
     buy_now_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-    buy_now_link->SetBackgroundColour(card_account_status->GetBackgroundColour());
+#endif
     buy_now_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     buy_now_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     buy_now_link->Hide();
@@ -1932,8 +1950,12 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     /*helio wiki - placed inside simulation card for simulation mode*/
     helio_wiki_link = new LinkLabel(card_simulation, _L("Click for more details"), wxGetApp().app_config->get("language") =="zh_CN"? "https://wiki.helioadditive.com/zh/home" : "https://wiki.helioadditive.com/en/home");
     helio_wiki_link->SeLinkLabelFColour(theme.purple);
+#ifdef __WXMSW__
+    helio_wiki_link->SeLinkLabelBColour(card_simulation->GetBackgroundColour());
+#else
+    helio_wiki_link->SeLinkLabelBColour(wxNullColour);
     helio_wiki_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-    helio_wiki_link->SetBackgroundColour(card_simulation->GetBackgroundColour());
+#endif
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     // Add wiki link to simulation card
@@ -2810,6 +2832,12 @@ HelioPatNotEnoughDialog::HelioPatNotEnoughDialog(wxWindow* parent /*= nullptr*/)
 
     auto helio_wiki_link = new LinkLabel(this, _L("Click for more details"), wxGetApp().app_config->get("language") =="zh_CN"? "https://wiki.helioadditive.com/zh/home" : "https://wiki.helioadditive.com/en/home");
     helio_wiki_link->SeLinkLabelFColour(wxColour(0, 174, 66));
+#ifdef __WXMSW__
+    helio_wiki_link->SeLinkLabelBColour(GetBackgroundColour());
+#else
+    helio_wiki_link->SeLinkLabelBColour(wxNullColour);
+    helio_wiki_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#endif
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
 
@@ -2984,6 +3012,12 @@ HelioRatingDialog::HelioRatingDialog(wxWindow *parent, int original, int optimiz
     auto helio_wiki_link = new LinkLabel(this, _L("Click for more details"),
                                     wxGetApp().app_config->get("language") == "zh_CN" ? "https://wiki.helioadditive.com/zh/home" : "https://wiki.helioadditive.com/en/home");
     helio_wiki_link->SeLinkLabelFColour(wxColour(175, 124, 255));
+#ifdef __WXMSW__
+    helio_wiki_link->SeLinkLabelBColour(GetBackgroundColour());
+#else
+    helio_wiki_link->SeLinkLabelBColour(wxNullColour);
+    helio_wiki_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#endif
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto &e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto &e) { SetCursor(wxCURSOR_ARROW); });
 
