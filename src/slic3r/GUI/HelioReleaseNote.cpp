@@ -1205,32 +1205,42 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
 {
     auto theme = get_theme();
 
-    // Helper lambda to make a label truly transparent
-    auto make_transparent = [](wxWindow* label) {
+    // Helper lambda to make a label background blend with parent
+    auto make_transparent = [](wxWindow* label, wxWindow* card_panel, bool is_selected, bool is_purple) {
         if (!label) return;
+#ifdef __WXMSW__
+        // Windows: wxStaticText ignores transparency, so match parent's painted color exactly
+        wxColour bg = card_panel ? card_panel->GetBackgroundColour() : *wxWHITE;
+        if (is_selected) {
+            auto clamp = [](int v) { return std::max(0, std::min(255, v)); };
+            if (is_purple) {
+                bg = wxColour(clamp(bg.Red() + 18), clamp(bg.Green() + 8), clamp(bg.Blue() + 18));
+            } else {
+                bg = wxColour(clamp(bg.Red() + 8), clamp(bg.Green() + 12), clamp(bg.Blue() + 22));
+            }
+        }
+        label->SetBackgroundColour(bg);
+#else
+        // macOS: true transparency works
         label->SetBackgroundColour(wxNullColour);
         label->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-#ifdef __WXMSW__
-        // Windows needs extra measures to prevent background painting
-        long style = label->GetWindowStyleFlag();
-        if (!(style & wxTRANSPARENT_WINDOW)) {
-            label->SetWindowStyleFlag(style | wxTRANSPARENT_WINDOW);
-            label->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent&) {});
-        }
 #endif
     };
+
+    bool sim_selected = (selected_action == 0);
+    bool opt_selected = (selected_action == 1);
 
     // Update simulation card
     if (simulation_card_panel) {
         HelioModeCardPanel* sim_card = dynamic_cast<HelioModeCardPanel*>(simulation_card_panel);
         if (sim_card) {
-            sim_card->SetSelected(selected_action == 0);
+            sim_card->SetSelected(sim_selected);
             sim_card->SetAccent(theme.purple);
             sim_card->SetBorderColour(theme.border);
             sim_card->SetBackgroundColour(theme.card);
         }
-        make_transparent(simulation_card_title);
-        make_transparent(simulation_card_subtitle);
+        make_transparent(simulation_card_title, simulation_card_panel, sim_selected, true);
+        make_transparent(simulation_card_subtitle, simulation_card_panel, sim_selected, true);
     }
 
     if (simulation_mode_icon) {
@@ -1243,13 +1253,13 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     if (optimization_card_panel) {
         HelioModeCardPanel* opt_card = dynamic_cast<HelioModeCardPanel*>(optimization_card_panel);
         if (opt_card) {
-            opt_card->SetSelected(selected_action == 1);
+            opt_card->SetSelected(opt_selected);
             opt_card->SetAccent(theme.blue);
             opt_card->SetBorderColour(theme.border);
             opt_card->SetBackgroundColour(theme.card);
         }
-        make_transparent(optimization_card_title);
-        make_transparent(optimization_card_subtitle);
+        make_transparent(optimization_card_title, optimization_card_panel, opt_selected, false);
+        make_transparent(optimization_card_subtitle, optimization_card_panel, opt_selected, false);
     }
     
     if (optimization_mode_icon) {
