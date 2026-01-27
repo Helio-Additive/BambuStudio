@@ -705,7 +705,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
             }
 
             int poll_count = 0;
-            while (res.status_str != "READY" && res.status_str != "ERROR" && poll_count < 60) {
+            while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED" && poll_count < 60) {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
 
                 PollResult poll_res = poll_gcode_status(helio_api_url, helio_api_key, res.id);
@@ -733,10 +733,11 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                         return;
                     }
                     
-                    // Handle ERROR status even if errors array is empty
-                    if (res.status_str == "ERROR") {
+                    // Handle ERROR/RESTRICTED status even if errors array is empty
+                    if (res.status_str == "ERROR" || res.status_str == "RESTRICTED") {
                         res.success = false;
-                        res.error = _u8L("Something went wrong while creating GCode. Please check your custom GCodes");
+                        // Use status as the error message if no specific errors were provided
+                        res.error = (boost::format("GCode creation failed with status: %1%") % res.status_str).str();
                         return;
                     }
                 }

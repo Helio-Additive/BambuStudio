@@ -861,7 +861,7 @@ wxColour HelioHistoryDialog::get_status_color(const std::string& status)
         return HELIO_SUCCESS;
     } else if (status == "RUNNING") {
         return HELIO_BLUE;
-    } else if (status == "FAILED" || status == "ERROR") {
+    } else if (status == "FAILED" || status == "ERROR" || status == "RESTRICTED") {
         return HELIO_ERROR;
     } else {
         return HELIO_MUTED;
