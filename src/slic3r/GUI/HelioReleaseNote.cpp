@@ -1204,7 +1204,14 @@ wxPanel* HelioInputDialog::create_card_panel(wxWindow* parent, const wxString& t
 void HelioInputDialog::update_mode_card_styling(int selected_action)
 {
     auto theme = get_theme();
-    
+
+    // Helper lambda to make a label truly transparent
+    auto make_transparent = [](wxWindow* label) {
+        if (!label) return;
+        label->SetBackgroundColour(wxNullColour);
+        label->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+    };
+
     // Update simulation card
     if (simulation_card_panel) {
         HelioModeCardPanel* sim_card = dynamic_cast<HelioModeCardPanel*>(simulation_card_panel);
@@ -1214,18 +1221,10 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
             sim_card->SetBorderColour(theme.border);
             sim_card->SetBackgroundColour(theme.card);
         }
-        // Get the ACTUAL background color after card updates (may be tinted if selected)
-        auto sim_bg = simulation_card_panel->GetBackgroundColour();
-        if (simulation_card_title) {
-            simulation_card_title->SetBackgroundColour(sim_bg);
-            simulation_card_title->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
-        if (simulation_card_subtitle) {
-            simulation_card_subtitle->SetBackgroundColour(sim_bg);
-            simulation_card_subtitle->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
+        make_transparent(simulation_card_title);
+        make_transparent(simulation_card_subtitle);
     }
-    
+
     if (simulation_mode_icon) {
         simulation_mode_icon->SetBitmap(selected_action == 0 ? simulation_icon_color : simulation_icon_gray);
         simulation_mode_icon->SetSize(wxSize(FromDIP(28), FromDIP(28)));  // Force size to prevent resizing
@@ -1241,16 +1240,8 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
             opt_card->SetBorderColour(theme.border);
             opt_card->SetBackgroundColour(theme.card);
         }
-        // Get the ACTUAL background color after card updates (may be tinted if selected)
-        auto opt_bg = optimization_card_panel->GetBackgroundColour();
-        if (optimization_card_title) {
-            optimization_card_title->SetBackgroundColour(opt_bg);
-            optimization_card_title->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
-        if (optimization_card_subtitle) {
-            optimization_card_subtitle->SetBackgroundColour(opt_bg);
-            optimization_card_subtitle->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        }
+        make_transparent(optimization_card_title);
+        make_transparent(optimization_card_subtitle);
     }
     
     if (optimization_mode_icon) {
