@@ -1246,6 +1246,7 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     if (simulation_mode_icon) {
         simulation_mode_icon->SetBitmap(selected_action == 0 ? simulation_icon_color : simulation_icon_gray);
         simulation_mode_icon->SetSize(wxSize(FromDIP(28), FromDIP(28)));  // Force size to prevent resizing
+        make_transparent(simulation_mode_icon, simulation_card_panel, sim_selected, true);
         simulation_mode_icon->Refresh();
     }
 
@@ -1265,9 +1266,10 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     if (optimization_mode_icon) {
         optimization_mode_icon->SetBitmap(selected_action == 1 ? optimization_icon_color : optimization_icon_gray);
         optimization_mode_icon->SetSize(wxSize(FromDIP(28), FromDIP(28)));  // Force size to prevent resizing
+        make_transparent(optimization_mode_icon, optimization_card_panel, opt_selected, false);
         optimization_mode_icon->Refresh();
     }
-    
+
     // Update title colors - selected = accent color, unselected = theme text
     if (simulation_card_title) {
         simulation_card_title->SetForegroundColour(selected_action == 0 ? theme.purple : theme.text);
@@ -1725,8 +1727,12 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
 
     buy_now_link = new LinkLabel(card_account_status, _L("Manage Account"), "https://wiki.helioadditive.com/");
     buy_now_link->SeLinkLabelFColour(wxColour(175, 124, 255));
+#ifdef __WXMSW__
+    buy_now_link->SeLinkLabelBColour(card_account_status->GetBackgroundColour());
+#else
+    buy_now_link->SeLinkLabelBColour(wxNullColour);
     buy_now_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-    buy_now_link->SetBackgroundColour(card_account_status->GetBackgroundColour());
+#endif
     buy_now_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     buy_now_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     buy_now_link->Hide();
@@ -1951,8 +1957,12 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     /*helio wiki - placed inside simulation card for simulation mode*/
     helio_wiki_link = new LinkLabel(card_simulation, _L("Click for more details"), wxGetApp().app_config->get("language") =="zh_CN"? "https://wiki.helioadditive.com/zh/home" : "https://wiki.helioadditive.com/en/home");
     helio_wiki_link->SeLinkLabelFColour(theme.purple);
+#ifdef __WXMSW__
+    helio_wiki_link->SeLinkLabelBColour(card_simulation->GetBackgroundColour());
+#else
+    helio_wiki_link->SeLinkLabelBColour(wxNullColour);
     helio_wiki_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-    helio_wiki_link->SetBackgroundColour(card_simulation->GetBackgroundColour());
+#endif
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     // Add wiki link to simulation card
@@ -2651,6 +2661,12 @@ HelioPatNotEnoughDialog::HelioPatNotEnoughDialog(wxWindow* parent /*= nullptr*/)
 
     auto helio_wiki_link = new LinkLabel(this, _L("Click for more details"), wxGetApp().app_config->get("language") =="zh_CN"? "https://wiki.helioadditive.com/zh/home" : "https://wiki.helioadditive.com/en/home");
     helio_wiki_link->SeLinkLabelFColour(wxColour(0, 174, 66));
+#ifdef __WXMSW__
+    helio_wiki_link->SeLinkLabelBColour(GetBackgroundColour());
+#else
+    helio_wiki_link->SeLinkLabelBColour(wxNullColour);
+    helio_wiki_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#endif
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
 
@@ -2825,6 +2841,12 @@ HelioRatingDialog::HelioRatingDialog(wxWindow *parent, int original, int optimiz
     auto helio_wiki_link = new LinkLabel(this, _L("Click for more details"),
                                     wxGetApp().app_config->get("language") == "zh_CN" ? "https://wiki.helioadditive.com/zh/home" : "https://wiki.helioadditive.com/en/home");
     helio_wiki_link->SeLinkLabelFColour(wxColour(175, 124, 255));
+#ifdef __WXMSW__
+    helio_wiki_link->SeLinkLabelBColour(GetBackgroundColour());
+#else
+    helio_wiki_link->SeLinkLabelBColour(wxNullColour);
+    helio_wiki_link->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#endif
     helio_wiki_link->Bind(wxEVT_ENTER_WINDOW, [this](auto &e) { SetCursor(wxCURSOR_HAND); });
     helio_wiki_link->Bind(wxEVT_LEAVE_WINDOW, [this](auto &e) { SetCursor(wxCURSOR_ARROW); });
 
