@@ -1286,8 +1286,9 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     // Check badges removed - using colored/greyscale icons instead
 }
 
- HelioInputDialog::HelioInputDialog(wxWindow *parent /*= nullptr*/)
-    : DPIDialog(static_cast<wxWindow *>(wxGetApp().mainframe), wxID_ANY, wxString("Helio Additive"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX)
+ HelioInputDialog::HelioInputDialog(wxWindow *parent /*= nullptr*/, const std::string& material_id /*= ""*/)
+    : DPIDialog(static_cast<wxWindow *>(wxGetApp().mainframe), wxID_ANY, wxString("Helio Additive"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
+      m_material_id(material_id)
 {
     shared_ptr = std::make_shared<int>(0);
     auto theme = get_theme();
@@ -1786,18 +1787,7 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     opt_font.SetWeight(wxFONTWEIGHT_BOLD);
     opt_header->SetFont(opt_font);
 
-    std::map<int, wxString> config_outerwall;
-    config_outerwall[0] = _L("Preserve Surface Finish");
-    config_outerwall[1] = _L("Speed & Strength");
-    auto outerwall = create_combo_item(card_optimization_settings, "optimiza_outerwall", _L("Print Priority"), config_outerwall, 1, PRINT_PRIORITY_DROPDOWN_WIDTH);
-    
-    if (m_combo_items.find("optimiza_outerwall") != m_combo_items.end()) {
-        m_combo_items["optimiza_outerwall"]->SetToolTip(
-            _L("Speed & Strength: Optimizes outer walls for improved performance.\n"
-               "(Formerly 'Optimise Outer Walls: Yes')\n\n"
-               "Preserve Surface Finish: Maintains outer wall quality and visual finish.\n"
-               "(Formerly 'Optimise Outer Walls: No')"));
-    }
+    auto outerwall = create_print_priority_combo(card_optimization_settings);
 
     auto plater = Slic3r::GUI::wxGetApp().plater();
     int layer_count = plater ? plater->get_gcode_layers_count() : 0;
@@ -2016,6 +2006,9 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
         url = "store.helioadditive.com?patToken=" + helio_api_key;
     }
     buy_now_link->setLinkUrl(url);
+
+    // Fetch print priority options for the material
+    fetch_print_priority_options();
 }
 
 void HelioInputDialog::update_action(int action)
@@ -2469,6 +2462,175 @@ wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int
     return item_sizer;
 }
 
+wxBoxSizer* HelioInputDialog::create_print_priority_combo(wxWindow* parent)
+{
+    auto theme = get_theme();
+    wxBoxSizer* item_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+    Label* label = new Label(parent, Label::Body_14, _L("Print Priority"));
+    label->SetFont(::Label::Body_14);
+    label->SetForegroundColour(theme.text);
+
+    ComboBox* combobox = new ComboBox(parent, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                                      wxSize(FromDIP(PRINT_PRIORITY_DROPDOWN_WIDTH), -1), 0, nullptr, wxCB_READONLY);
+    combobox->SetBackgroundColor(StateColor(std::make_pair(theme.card2, (int)StateColor::Normal)));
+    combobox->SetTextColor(StateColor(std::make_pair(theme.text, (int)StateColor::Normal)));
+    combobox->SetBorderColor(StateColor(std::make_pair(theme.border, (int)StateColor::Normal)));
+
+    item_sizer->Add(label, 0, wxALIGN_CENTER_VERTICAL, 0);
+    item_sizer->Add(0, 0, 1, wxEXPAND, 0);
+    item_sizer->Add(combobox, 0, wxALIGN_CENTER_VERTICAL, 0);
+
+    m_combo_items["optimiza_outerwall"] = combobox;
+    populate_print_priority_dropdown(combobox);
+
+    return item_sizer;
+}
+
+void HelioInputDialog::populate_print_priority_dropdown(ComboBox* combobox)
+{
+    if (!combobox) return;
+
+    combobox->Clear();
+
+    if (m_print_priority_loading) {
+        // Show loading state
+        combobox->Append(_L("Loading options..."));
+        combobox->SetSelection(0);
+        combobox->Disable();
+        return;
+    }
+
+    if (m_print_priority_options.empty()) {
+        // Use fallback hard-coded options
+        combobox->Append(_L("Preserve Surface Finish"));
+        combobox->Append(_L("Speed & Strength"));
+        combobox->SetSelection(1); // Default to Speed & Strength
+        combobox->Enable();
+
+        // Set fallback tooltip
+        combobox->SetToolTip(
+            _L("Speed & Strength: Optimizes outer walls for improved performance.\n"
+               "Preserve Surface Finish: Maintains original wall speeds to preserve your visual finish.\n\n"
+               "Note: Using default options - couldn't fetch material-specific settings"));
+        return;
+    }
+
+    // Filter to only include available options
+    m_available_print_priority_options.clear();
+    for (const auto& option : m_print_priority_options) {
+        if (option.isAvailable) {
+            m_available_print_priority_options.push_back(option);
+        }
+    }
+
+    // Populate dropdown with only available options
+    int default_selection = -1;
+    for (size_t i = 0; i < m_available_print_priority_options.size(); i++) {
+        const auto& option = m_available_print_priority_options[i];
+
+        // Add item
+        combobox->Append(wxString::FromUTF8(option.label.c_str()));
+
+        // Set tooltip with description
+        combobox->SetItemTooltip(i, wxString::FromUTF8(option.description.c_str()));
+
+        // Set default selection to first SPEED_AND_STRENGTH option
+        if (default_selection == -1 && option.value == "SPEED_AND_STRENGTH") {
+            default_selection = i;
+        }
+    }
+
+    // If no SPEED_AND_STRENGTH, default to first available option
+    if (default_selection == -1 && !m_available_print_priority_options.empty()) {
+        default_selection = 0;
+    }
+
+    if (default_selection != -1) {
+        combobox->SetSelection(default_selection);
+    } else {
+        combobox->SetSelection(0); // Fallback to first item
+    }
+
+    combobox->Enable();
+
+    // Clear global tooltip to allow per-item tooltips to display
+    combobox->UnsetToolTip();
+}
+
+void HelioInputDialog::fetch_print_priority_options()
+{
+    if (m_material_id.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "fetch_print_priority_options: material_id is empty, using fallback options";
+        return;
+    }
+
+    // Check cache first
+    auto cached_options = HelioQuery::get_cached_print_priority_options(m_material_id);
+    if (!cached_options.empty()) {
+        m_print_priority_options = cached_options;
+        update_print_priority_dropdown();
+        return;
+    }
+
+    // Not cached, fetch from API
+    m_print_priority_loading = true;
+    update_print_priority_dropdown(); // Show loading state
+
+    std::string helio_api_url = HelioQuery::get_helio_api_url();
+    std::string helio_api_key = HelioQuery::get_helio_pat();
+
+    if (helio_api_key.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "fetch_print_priority_options: No API key, using fallback options";
+        m_print_priority_loading = false;
+        update_print_priority_dropdown();
+        return;
+    }
+
+    // Create a shared_ptr to this dialog to keep it alive during async callback
+    auto self_ptr = shared_ptr; // Keep the dialog alive
+
+    HelioQuery::request_print_priority_options(
+        helio_api_url,
+        helio_api_key,
+        m_material_id,
+        [this, self_ptr](HelioQuery::GetPrintPriorityOptionsResult result) {
+            // Use CallAfter to update UI from main thread
+            CallAfter([this, result, self_ptr]() {
+                m_print_priority_loading = false;
+
+                if (result.success && !result.options.empty()) {
+                    m_print_priority_options = result.options;
+                } else {
+                    // Log error and use fallback
+                    BOOST_LOG_TRIVIAL(error) << "fetch_print_priority_options failed: " << result.error
+                                            << ", trace-id: " << result.trace_id;
+
+                    // Show notification to user
+                    auto notification_manager = wxGetApp().plater()->get_notification_manager();
+                    if (notification_manager) {
+                        notification_manager->push_notification(
+                            NotificationType::CustomNotification,
+                            NotificationManager::NotificationLevel::WarningNotificationLevel,
+                            _u8L("Using default options - couldn't fetch material-specific settings")
+                        );
+                    }
+                }
+
+                update_print_priority_dropdown();
+            });
+        }
+    );
+}
+
+void HelioInputDialog::update_print_priority_dropdown()
+{
+    auto it = m_combo_items.find("optimiza_outerwall");
+    if (it != m_combo_items.end()) {
+        populate_print_priority_dropdown(it->second);
+    }
+}
+
 
 static bool s_get_double_regex(const wxString& str, double& value)
 {
@@ -2559,7 +2721,13 @@ Slic3r::HelioQuery::OptimizationInput HelioInputDialog::get_optimization_input(b
         }
     }
     
-    data.outer_wall = m_combo_items["optimiza_outerwall"]->GetSelection();
+    int selection = m_combo_items["optimiza_outerwall"]->GetSelection();
+    if (selection >= 0 && selection < m_available_print_priority_options.size()) {
+        data.print_priority = m_available_print_priority_options[selection].value;
+    } else {
+        // Fallback mapping for hard-coded options
+        data.print_priority = (selection == 0) ? "PRESERVE_SURFACE_FINISH" : "SPEED_AND_STRENGTH";
+    }
 
     if (!s_get_int_val(m_input_items["layers_to_optimize_min"], data.layers_to_optimize[0])) { return data; }
     if (!s_get_int_val(m_input_items["layers_to_optimize_max"], data.layers_to_optimize[1])) { return data; }

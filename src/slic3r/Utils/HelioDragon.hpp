@@ -41,7 +41,7 @@ public:
 
     struct OptimizationInput
     {
-        bool outer_wall{false};
+        std::string print_priority;  // Enum value like "SPEED_AND_STRENGTH"
         float chamber_temp{ -1 };
         float min_velocity{ -1 };
         float max_velocity{ -1 };
@@ -80,6 +80,21 @@ public:
         std::string name;
         std::string native_name;
         std::string feedstock;
+    };
+
+    struct PrintPriorityOption {
+        std::string value;        // Enum value: "SPEED_AND_STRENGTH"
+        std::string label;        // Display text: "Speed & Strength"
+        bool isAvailable;         // Whether enabled for this material
+        std::string description;  // Tooltip text
+    };
+
+    struct GetPrintPriorityOptionsResult {
+        bool success;
+        std::vector<PrintPriorityOption> options;
+        std::string error;
+        unsigned status;
+        std::string trace_id;
     };
 
     struct PollResult {
@@ -278,14 +293,29 @@ public:
     static void request_all_support_machine(const std::string helio_api_url, const std::string helio_api_key)
     {
         global_supported_printers.clear();
+        clear_print_priority_cache();
         request_support_machine(helio_api_url, helio_api_key, 1);
     }
 
     static void request_all_support_materials(const std::string helio_api_url, const std::string helio_api_key)
     {
         global_supported_materials.clear();
+        clear_print_priority_cache();
         request_support_material(helio_api_url, helio_api_key, 1);
     }
+
+    static void request_print_priority_options(
+        const std::string& helio_api_url,
+        const std::string& helio_api_key,
+        const std::string& material_id,
+        std::function<void(GetPrintPriorityOptionsResult)> callback
+    );
+
+    static std::vector<PrintPriorityOption> get_cached_print_priority_options(
+        const std::string& material_id
+    );
+
+    static void clear_print_priority_cache();
 
     /*for helio simulation*/
     static CreateSimulationResult create_simulation(const std::string helio_api_url,
@@ -326,16 +356,16 @@ public:
                                                          float airTemperatureAboveBuildPlate = -1,
                                                          float stabilizedAirTemperature = -1);
 
-    static std::string generate_optimization_graphql_query(const std::string& gcode_id, 
-                                                           bool outerwall,
-                                                           float temperatureStabilizationHeight = -1, 
-                                                           float airTemperatureAboveBuildPlate = -1, 
-                                                           float stabilizedAirTemperature = -1, 
-                                                           double minVelocity = -1,  
-                                                           double maxVelocity = -1, 
-                                                           double minExtruderFlowRate = -1, 
-                                                           double maxExtruderFlowRate = -1, 
-                                                           int layersToOptimizeStart = -1, 
+    static std::string generate_optimization_graphql_query(const std::string& gcode_id,
+                                                           const std::string& printPriority,
+                                                           float temperatureStabilizationHeight = -1,
+                                                           float airTemperatureAboveBuildPlate = -1,
+                                                           float stabilizedAirTemperature = -1,
+                                                           double minVelocity = -1,
+                                                           double maxVelocity = -1,
+                                                           double minExtruderFlowRate = -1,
+                                                           double maxExtruderFlowRate = -1,
+                                                           int layersToOptimizeStart = -1,
                                                            int layersToOptimizeEnd = -1);
     static std::string generateTimestampedString()
     {
@@ -351,6 +381,7 @@ public:
 
     static std::vector<SupportedData> global_supported_printers;
     static std::vector<SupportedData> global_supported_materials;
+    static std::map<std::string, std::vector<PrintPriorityOption>> global_print_priority_cache;
     static std::string last_simulation_trace_id;
     static std::string last_optimization_trace_id;
     static double convert_speed(float mm_per_second);

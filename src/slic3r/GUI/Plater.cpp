@@ -11639,7 +11639,7 @@ void Plater::priv::on_helio_process()
     std::string material_id;
 
     if (update_helio_background_process(printer_id, material_id) > -1) {
-        HelioInputDialog dlg;
+        HelioInputDialog dlg(nullptr, material_id);
         
         // Check if we should pre-select optimization mode (set from simulation results dialog)
         if (g_helio_pre_select_optimization) {

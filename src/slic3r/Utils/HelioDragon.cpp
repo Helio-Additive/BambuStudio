@@ -25,8 +25,9 @@ namespace Slic3r {
 
 std::vector<HelioQuery::SupportedData> HelioQuery::global_supported_printers;
 std::vector<HelioQuery::SupportedData> HelioQuery::global_supported_materials;
+std::map<std::string, std::vector<HelioQuery::PrintPriorityOption>> HelioQuery::global_print_priority_cache;
 
-std::string HelioQuery::last_simulation_trace_id;    
+std::string HelioQuery::last_simulation_trace_id;
 std::string HelioQuery::last_optimization_trace_id;  
 
 std::string extract_trace_id(const std::string& headers) {
@@ -313,6 +314,123 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
             BOOST_LOG_TRIVIAL(error) << "request_support_material error: " << error << ", status: " << status << ", body: " << body;
         })
         .perform();
+}
+
+void HelioQuery::request_print_priority_options(
+    const std::string& helio_api_url,
+    const std::string& helio_api_key,
+    const std::string& material_id,
+    std::function<void(GetPrintPriorityOptionsResult)> callback
+)
+{
+    std::string query_body = R"( {
+        "query": "query GetPrintPriorityOptions($materialId: ID!) { printPriorityOptions(materialId: $materialId) { value label isAvailable description } }",
+        "variables": {"materialId": "%1%"}
+    } )";
+
+    query_body = boost::str(boost::format(query_body) % material_id);
+
+    auto http = Http::post(helio_api_url);
+
+    // Add Accept-Language header if Chinese region
+    bool is_china = GUI::wxGetApp().app_config->get("region") == "China";
+
+    http.header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + helio_api_key)
+        .header("HelioAdditive-Client-Name", SLIC3R_APP_NAME)
+        .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION));
+
+    if (is_china) {
+        http.header("Accept-Language", "zh-CN");
+    }
+
+    http.set_post_body(query_body);
+
+    std::string response_headers;
+    http.timeout_connect(20)
+        .timeout_max(100)
+        .on_header_callback([&response_headers](std::string headers) {
+            response_headers += headers;
+        })
+        .on_complete([callback, material_id, &response_headers](std::string body, unsigned status) {
+            BOOST_LOG_TRIVIAL(info) << "request_print_priority_options response: " << body;
+
+            GetPrintPriorityOptionsResult result;
+            result.status = status;
+            result.success = false;
+            result.trace_id = extract_trace_id(response_headers);
+
+            try {
+                nlohmann::json parsed_obj = nlohmann::json::parse(body);
+
+                if (parsed_obj.contains("data") && parsed_obj["data"].contains("printPriorityOptions")) {
+                    auto options_array = parsed_obj["data"]["printPriorityOptions"];
+                    if (options_array.is_array()) {
+                        for (const auto& opt : options_array) {
+                            PrintPriorityOption option;
+                            if (opt.contains("value") && !opt["value"].is_null()) {
+                                option.value = opt["value"].get<std::string>();
+                            }
+                            if (opt.contains("label") && !opt["label"].is_null()) {
+                                option.label = opt["label"].get<std::string>();
+                            }
+                            if (opt.contains("isAvailable") && !opt["isAvailable"].is_null()) {
+                                option.isAvailable = opt["isAvailable"].get<bool>();
+                            } else {
+                                option.isAvailable = true; // Default to available
+                            }
+                            if (opt.contains("description") && !opt["description"].is_null()) {
+                                option.description = opt["description"].get<std::string>();
+                            }
+                            result.options.push_back(option);
+                        }
+                        result.success = true;
+
+                        // Cache the results
+                        global_print_priority_cache[material_id] = result.options;
+                    }
+                } else if (parsed_obj.contains("errors")) {
+                    // GraphQL errors
+                    result.error = "API error";
+                    if (parsed_obj["errors"].is_array() && !parsed_obj["errors"].empty()) {
+                        result.error = parsed_obj["errors"][0].value("message", "Unknown error");
+                    }
+                }
+            } catch (const std::exception& e) {
+                result.error = std::string("Parse error: ") + e.what();
+                BOOST_LOG_TRIVIAL(error) << "request_print_priority_options parse error: " << e.what()
+                                        << ", trace-id: " << result.trace_id;
+            }
+
+            callback(result);
+        })
+        .on_error([callback, &response_headers](std::string body, std::string error, unsigned status) {
+            BOOST_LOG_TRIVIAL(error) << "request_print_priority_options error: " << error
+                                    << ", status: " << status << ", body: " << body;
+            GetPrintPriorityOptionsResult result;
+            result.success = false;
+            result.error = error;
+            result.status = status;
+            result.trace_id = extract_trace_id(response_headers);
+            callback(result);
+        })
+        .perform();
+}
+
+std::vector<HelioQuery::PrintPriorityOption> HelioQuery::get_cached_print_priority_options(
+    const std::string& material_id
+)
+{
+    auto it = global_print_priority_cache.find(material_id);
+    if (it != global_print_priority_cache.end()) {
+        return it->second;
+    }
+    return std::vector<PrintPriorityOption>();
+}
+
+void HelioQuery::clear_print_priority_cache()
+{
+    global_print_priority_cache.clear();
 }
 
 std::string HelioQuery::get_helio_api_url()
@@ -806,7 +924,7 @@ std::string HelioQuery::generate_simulation_graphql_query(const std::string &gco
 }
 
 std::string HelioQuery::generate_optimization_graphql_query(const std::string& gcode_id,
-    bool outerwall,
+    const std::string& printPriority,
     float temperatureStabilizationHeight,
     float airTemperatureAboveBuildPlate,
     float stabilizedAirTemperature,
@@ -848,7 +966,9 @@ std::string HelioQuery::generate_optimization_graphql_query(const std::string& g
     // Step 2. OptimizationSettingsInput
     std::vector<std::string> optimization_fields;
 
-    optimization_fields.push_back(boost::str(boost::format(R"("optimizeOuterwall": %1%)") % (outerwall ? "true" : "false")));
+    if (!printPriority.empty()) {
+        optimization_fields.push_back(boost::str(boost::format(R"("printPriority": "%1%")") % printPriority));
+    }
 
     if (minVelocity != -1) {
         optimization_fields.push_back(boost::str(boost::format(R"("minVelocity": %1%)") % minVelocity));
@@ -1173,8 +1293,8 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
 
     std::string query_body;
 
-    /*outer wall*/
-    const bool outer_wall = oinput.outer_wall;
+    /*print priority*/
+    const std::string print_priority = oinput.print_priority;
 
     /*SimulationInput*/
     const float chamber_temp = oinput.chamber_temp;
@@ -1201,7 +1321,7 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
         const double max_volumetric_speed = convert_volume_speed(oinput.max_volumetric_speed);
 
         query_body = generate_optimization_graphql_query(gcode_id,
-            outer_wall,
+            print_priority,
             layer_threshold_meters,
             initial_room_temp_kelvin,
             object_proximity_airtemp_kelvin,
@@ -1214,7 +1334,7 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
     }
     else {
         query_body = generate_optimization_graphql_query(gcode_id,
-            outer_wall,
+            print_priority,
             layer_threshold_meters,
             initial_room_temp_kelvin,
             object_proximity_airtemp_kelvin,

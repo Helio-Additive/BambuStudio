@@ -179,6 +179,11 @@ private:
     Button* m_button_confirm{nullptr};
     wxString m_lastValidValue = wxEmptyString;
 
+    std::string m_material_id;
+    std::vector<HelioQuery::PrintPriorityOption> m_print_priority_options;
+    std::vector<HelioQuery::PrintPriorityOption> m_available_print_priority_options;
+    bool m_print_priority_loading{false};
+
     wxPanel* panel_simulation{nullptr};
     wxPanel* panel_pay_optimization{nullptr};
     wxPanel* panel_optimization{nullptr};
@@ -216,7 +221,7 @@ private:
     
     int m_original_tooltip_delay{500};
 public:
-    HelioInputDialog(wxWindow *parent = nullptr);
+    HelioInputDialog(wxWindow *parent = nullptr, const std::string& material_id = "");
     ~HelioInputDialog();
 
 public:
@@ -233,10 +238,16 @@ private:
                                   const std::vector<std::shared_ptr<TextInputValChecker>>& checkers);
     wxBoxSizer* create_combo_item(wxWindow* parent, std::string key,  wxString name, std::map<int, wxString> combolist, int def, int width = 120);
     wxBoxSizer* create_input_optimize_layers(wxWindow* parent, int layer_count);
-    
+
     // Card creation helper
     wxPanel* create_card_panel(wxWindow* parent, const wxString& title = wxEmptyString);
     void update_mode_card_styling(int selected_action);
+
+    // Print priority helper methods
+    wxBoxSizer* create_print_priority_combo(wxWindow* parent);
+    void populate_print_priority_dropdown(ComboBox* combobox);
+    void fetch_print_priority_options();
+    void update_print_priority_dropdown();
 
     void on_selected_simulation(wxMouseEvent& e) { update_action(0); }
     void on_selected_optimaztion(wxMouseEvent& e){ update_action(1); }
