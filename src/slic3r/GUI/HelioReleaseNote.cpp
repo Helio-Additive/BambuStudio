@@ -1210,6 +1210,14 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
         if (!label) return;
         label->SetBackgroundColour(wxNullColour);
         label->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#ifdef __WXMSW__
+        // Windows needs extra measures to prevent background painting
+        long style = label->GetWindowStyleFlag();
+        if (!(style & wxTRANSPARENT_WINDOW)) {
+            label->SetWindowStyleFlag(style | wxTRANSPARENT_WINDOW);
+            label->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent&) {});
+        }
+#endif
     };
 
     // Update simulation card
