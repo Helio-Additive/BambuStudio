@@ -41,7 +41,9 @@ public:
 
     struct OptimizationInput
     {
-        std::string print_priority;  // Enum value like "SPEED_AND_STRENGTH"
+        std::string print_priority;  // Enum value like "SPEED_AND_STRENGTH" (NEW METHOD)
+        bool optimize_outerwall{ true };  // OLD METHOD: true = "Speed & Strength", false = "Preserve Surface Finish"
+        bool use_old_method{ false };  // Flag: true = use optimizeOuterwall, false = use printPriority
         float chamber_temp{ -1 };
         float min_velocity{ -1 };
         float max_velocity{ -1 };
@@ -358,6 +360,8 @@ public:
 
     static std::string generate_optimization_graphql_query(const std::string& gcode_id,
                                                            const std::string& printPriority,
+                                                           bool optimizeOuterwall,
+                                                           bool useOldMethod,
                                                            float temperatureStabilizationHeight = -1,
                                                            float airTemperatureAboveBuildPlate = -1,
                                                            float stabilizedAirTemperature = -1,

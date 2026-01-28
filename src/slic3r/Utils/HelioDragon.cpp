@@ -31,25 +31,36 @@ std::string HelioQuery::last_simulation_trace_id;
 std::string HelioQuery::last_optimization_trace_id;  
 
 std::string extract_trace_id(const std::string& headers) {
-    std::istringstream iss(headers);
-    std::string line;
-    std::string trace_id;
-    while (std::getline(iss, line)) {
-        std::string lower_line;
-        for (unsigned char c : line) lower_line += std::tolower(c);
-        if (lower_line.find("trace-id:") == 0) {
-            size_t colon_pos = line.find(':');
-            if (colon_pos != std::string::npos) {
-                size_t value_start = colon_pos + 1;
-                while (value_start < line.size() && std::isspace(static_cast<unsigned char>(line[value_start]))) value_start++;
-                trace_id = line.substr(value_start);
-                trace_id.erase(trace_id.find_last_not_of(" \r\n") + 1);
-                break;
-            }
-        }
+    // Validate input to prevent crashes
+    if (headers.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "extract_trace_id: empty headers";
+        return "";
     }
 
-    return trace_id;
+    try {
+        std::istringstream iss(headers);
+        std::string line;
+        std::string trace_id;
+        while (std::getline(iss, line)) {
+            std::string lower_line;
+            for (unsigned char c : line) lower_line += std::tolower(c);
+            if (lower_line.find("trace-id:") == 0) {
+                size_t colon_pos = line.find(':');
+                if (colon_pos != std::string::npos) {
+                    size_t value_start = colon_pos + 1;
+                    while (value_start < line.size() && std::isspace(static_cast<unsigned char>(line[value_start]))) value_start++;
+                    trace_id = line.substr(value_start);
+                    trace_id.erase(trace_id.find_last_not_of(" \r\n") + 1);
+                    break;
+                }
+            }
+        }
+
+        return trace_id;
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "extract_trace_id error: " << e.what();
+        return "";
+    }
 }
 
 std::string format_error(std::string body)
@@ -346,19 +357,20 @@ void HelioQuery::request_print_priority_options(
 
     http.set_post_body(query_body);
 
-    std::string response_headers;
-    http.timeout_connect(20)
-        .timeout_max(100)
-        .on_header_callback([&response_headers](std::string headers) {
-            response_headers += headers;
+    // Use shared_ptr to prevent stack corruption in async callbacks
+    auto response_headers = std::make_shared<std::string>();
+    http.timeout_connect(10)
+        .timeout_max(30)
+        .on_header_callback([response_headers](std::string headers) {
+            *response_headers += headers;
         })
-        .on_complete([callback, material_id, &response_headers](std::string body, unsigned status) {
+        .on_complete([callback, material_id, response_headers](std::string body, unsigned status) {
             BOOST_LOG_TRIVIAL(info) << "request_print_priority_options response: " << body;
 
             GetPrintPriorityOptionsResult result;
             result.status = status;
             result.success = false;
-            result.trace_id = extract_trace_id(response_headers);
+            result.trace_id = extract_trace_id(*response_headers);
 
             try {
                 nlohmann::json parsed_obj = nlohmann::json::parse(body);
@@ -404,14 +416,14 @@ void HelioQuery::request_print_priority_options(
 
             callback(result);
         })
-        .on_error([callback, &response_headers](std::string body, std::string error, unsigned status) {
+        .on_error([callback, response_headers](std::string body, std::string error, unsigned status) {
             BOOST_LOG_TRIVIAL(error) << "request_print_priority_options error: " << error
                                     << ", status: " << status << ", body: " << body;
             GetPrintPriorityOptionsResult result;
             result.success = false;
             result.error = error;
             result.status = status;
-            result.trace_id = extract_trace_id(response_headers);
+            result.trace_id = extract_trace_id(*response_headers);
             callback(result);
         })
         .perform();
@@ -925,6 +937,8 @@ std::string HelioQuery::generate_simulation_graphql_query(const std::string &gco
 
 std::string HelioQuery::generate_optimization_graphql_query(const std::string& gcode_id,
     const std::string& printPriority,
+    bool optimizeOuterwall,
+    bool useOldMethod,
     float temperatureStabilizationHeight,
     float airTemperatureAboveBuildPlate,
     float stabilizedAirTemperature,
@@ -966,7 +980,12 @@ std::string HelioQuery::generate_optimization_graphql_query(const std::string& g
     // Step 2. OptimizationSettingsInput
     std::vector<std::string> optimization_fields;
 
-    if (!printPriority.empty()) {
+    if (useOldMethod) {
+        // OLD METHOD: Use optimizeOuterwall boolean (fallback when API print priority options unavailable)
+        optimization_fields.push_back(boost::str(boost::format(R"("optimizeOuterwall": %1%)")
+            % (optimizeOuterwall ? "true" : "false")));
+    } else if (!printPriority.empty()) {
+        // NEW METHOD: Use printPriority string
         optimization_fields.push_back(boost::str(boost::format(R"("printPriority": "%1%")") % printPriority));
     }
 
@@ -1322,6 +1341,8 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
 
         query_body = generate_optimization_graphql_query(gcode_id,
             print_priority,
+            oinput.optimize_outerwall,
+            oinput.use_old_method,
             layer_threshold_meters,
             initial_room_temp_kelvin,
             object_proximity_airtemp_kelvin,
@@ -1335,6 +1356,8 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
     else {
         query_body = generate_optimization_graphql_query(gcode_id,
             print_priority,
+            oinput.optimize_outerwall,
+            oinput.use_old_method,
             layer_threshold_meters,
             initial_room_temp_kelvin,
             object_proximity_airtemp_kelvin,

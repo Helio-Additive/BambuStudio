@@ -2513,30 +2513,38 @@ void HelioInputDialog::populate_print_priority_dropdown(ComboBox* combobox)
 {
     if (!combobox) return;
 
-    combobox->Clear();
+    // Wrap operations in try-catch for Windows safety
+    try {
+        combobox->Clear();
 
-    if (m_print_priority_loading) {
-        // Show loading state
-        combobox->Append(_L("Loading options..."));
-        combobox->SetSelection(0);
-        combobox->Disable();
-        return;
-    }
+        if (m_print_priority_loading) {
+            // Loading state - show disabled with loading message
+            combobox->Append(_L("Loading print priority options..."));
+            combobox->SetSelection(0);
+            combobox->Disable();
+            combobox->SetToolTip(_L("Fetching material-specific options from Helio API..."));
+            return;
+        }
 
     if (m_print_priority_options.empty()) {
-        // Use fallback hard-coded options
-        combobox->Append(_L("Preserve Surface Finish"));
-        combobox->Append(_L("Speed & Strength"));
-        combobox->SetSelection(1); // Default to Speed & Strength
-        combobox->Enable();
+        // API failed - show hard-coded fallback options (OLD METHOD using optimizeOuterwall)
+        // These options map to the old optimization method that uses optimizeOuterwall boolean
+        m_using_fallback_print_priority = true;
 
-        // Set fallback tooltip
+        combobox->Append(_L("Preserve Surface Finish"));  // selection 0 → optimizeOuterwall: false
+        combobox->Append(_L("Speed & Strength"));         // selection 1 → optimizeOuterwall: true
+        combobox->SetSelection(1);  // Default to "Speed & Strength"
+        combobox->Enable();  // ENABLED - user can select
+
         combobox->SetToolTip(
             _L("Speed & Strength: Optimizes outer walls for improved performance.\n"
-               "Preserve Surface Finish: Maintains original wall speeds to preserve your visual finish.\n\n"
-               "Note: Using default options - couldn't fetch material-specific settings"));
+               "Preserve Surface Finish: Maintains original wall speeds to preserve visual finish.\n\n"
+               "Note: Using fallback options - couldn't fetch material-specific settings from API."));
         return;
     }
+
+    // Using API options (NEW METHOD)
+    m_using_fallback_print_priority = false;
 
     // Filter to only include available options
     m_available_print_priority_options.clear();
@@ -2544,6 +2552,16 @@ void HelioInputDialog::populate_print_priority_dropdown(ComboBox* combobox)
         if (option.isAvailable) {
             m_available_print_priority_options.push_back(option);
         }
+    }
+
+    // Check if any options are available for this material
+    if (m_available_print_priority_options.empty()) {
+        // No available options for this material
+        combobox->Append(_L("No print priority options available for this material"));
+        combobox->SetSelection(0);
+        combobox->Disable();
+        combobox->SetToolTip(_L("This material does not support print priority optimization."));
+        return;
     }
 
     // Populate dropdown with only available options
@@ -2578,6 +2596,10 @@ void HelioInputDialog::populate_print_priority_dropdown(ComboBox* combobox)
 
     // Clear global tooltip to allow per-item tooltips to display
     combobox->UnsetToolTip();
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "populate_print_priority_dropdown error: " << e.what();
+        return;
+    }
 }
 
 void HelioInputDialog::fetch_print_priority_options()
@@ -2618,7 +2640,12 @@ void HelioInputDialog::fetch_print_priority_options()
         m_material_id,
         [this, self_ptr](HelioQuery::GetPrintPriorityOptionsResult result) {
             // Use CallAfter to update UI from main thread
-            CallAfter([this, result, self_ptr]() {
+            // Keep self_ptr capture to ensure dialog stays alive during callback
+            CallAfter([this, self_ptr, result]() {
+                // Validate self_ptr to ensure dialog is still alive
+                // self_ptr is a shared_ptr<int> member - if it's valid, the dialog is valid
+                if (!self_ptr || self_ptr.use_count() == 0) return;
+
                 m_print_priority_loading = false;
 
                 if (result.success && !result.options.empty()) {
@@ -2628,13 +2655,14 @@ void HelioInputDialog::fetch_print_priority_options()
                     BOOST_LOG_TRIVIAL(error) << "fetch_print_priority_options failed: " << result.error
                                             << ", trace-id: " << result.trace_id;
 
-                    // Show notification to user
+                    // Show notification to user about using standard optimization method
                     auto notification_manager = wxGetApp().plater()->get_notification_manager();
                     if (notification_manager) {
                         notification_manager->push_notification(
                             NotificationType::CustomNotification,
                             NotificationManager::NotificationLevel::WarningNotificationLevel,
-                            _u8L("Using default options - couldn't fetch material-specific settings")
+                            _u8L("Failed to load print priority options from Helio API.\n"
+                                 "Using standard optimization method instead (same as before print priority feature).")
                         );
                     }
                 }
@@ -2648,7 +2676,7 @@ void HelioInputDialog::fetch_print_priority_options()
 void HelioInputDialog::update_print_priority_dropdown()
 {
     auto it = m_combo_items.find("optimiza_outerwall");
-    if (it != m_combo_items.end()) {
+    if (it != m_combo_items.end() && it->second != nullptr) {
         populate_print_priority_dropdown(it->second);
     }
 }
@@ -2743,12 +2771,27 @@ Slic3r::HelioQuery::OptimizationInput HelioInputDialog::get_optimization_input(b
         }
     }
     
-    int selection = m_combo_items["optimiza_outerwall"]->GetSelection();
-    if (selection >= 0 && selection < m_available_print_priority_options.size()) {
-        data.print_priority = m_available_print_priority_options[selection].value;
-    } else {
-        // Fallback mapping for hard-coded options
-        data.print_priority = (selection == 0) ? "PRESERVE_SURFACE_FINISH" : "SPEED_AND_STRENGTH";
+    // Handle print priority dropdown - either new API method or old fallback method
+    auto combo_it = m_combo_items.find("optimiza_outerwall");
+    if (combo_it != m_combo_items.end() && combo_it->second && combo_it->second->IsEnabled()) {
+        int selection = combo_it->second->GetSelection();
+
+        if (m_using_fallback_print_priority) {
+            // Using hard-coded fallback options → OLD METHOD (optimizeOuterwall boolean)
+            // selection 0 = "Preserve Surface Finish" → optimizeOuterwall: false
+            // selection 1 = "Speed & Strength" → optimizeOuterwall: true
+            data.optimize_outerwall = (selection == 1);
+            data.use_old_method = true;
+            // Leave data.print_priority EMPTY (will use old mutation format)
+
+        } else if (!m_available_print_priority_options.empty()) {
+            // Using API options → NEW METHOD (printPriority string)
+            if (selection >= 0 && static_cast<size_t>(selection) < m_available_print_priority_options.size()) {
+                data.print_priority = m_available_print_priority_options[selection].value;
+            }
+            data.use_old_method = false;
+            // Leave data.optimize_outerwall at default (will use new mutation format)
+        }
     }
 
     if (!s_get_int_val(m_input_items["layers_to_optimize_min"], data.layers_to_optimize[0])) { return data; }

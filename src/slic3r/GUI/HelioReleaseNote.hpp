@@ -183,6 +183,7 @@ private:
     std::vector<HelioQuery::PrintPriorityOption> m_print_priority_options;
     std::vector<HelioQuery::PrintPriorityOption> m_available_print_priority_options;
     bool m_print_priority_loading{false};
+    bool m_using_fallback_print_priority{false};  // Track if using hard-coded fallback options (old method)
 
     wxPanel* panel_simulation{nullptr};
     wxPanel* panel_pay_optimization{nullptr};
