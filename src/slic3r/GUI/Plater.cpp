@@ -11691,16 +11691,21 @@ void Plater::priv::on_helio_processing_complete(HelioCompletionEvent &a)
             if (plate1) {
                 if (plate->get_slice_result()) {
                     time_optimized_value = plate->get_slice_result()->print_statistics.modes[0].time;
-                    //time_optimized = wxString::Format("%s", short_time(get_time_dhms(plate->get_slice_result()->print_statistics.modes[0].time))); 
+                    //time_optimized = wxString::Format("%s", short_time(get_time_dhms(plate->get_slice_result()->print_statistics.modes[0].time)));
                 }
             }
 
-            // Store optimization result for "View Summary" feature
-            helio_background_process.last_action = 1;  // Optimization
-            helio_background_process.last_original_print_time_seconds = time_origin_value;
-            helio_background_process.last_optimized_print_time_seconds = time_optimized_value;
-            helio_background_process.last_quality_mean_improvement = a.quality_mean_improvement;
-            helio_background_process.last_quality_std_improvement = a.quality_std_improvement;
+            // Store optimization result to current plate for "View Summary" feature
+            if (plate) {
+                HelioPlateResult helio_result;
+                helio_result.action = 1;  // Optimization
+                helio_result.original_print_time_seconds = time_origin_value;
+                helio_result.optimized_print_time_seconds = time_optimized_value;
+                helio_result.quality_mean_improvement = a.quality_mean_improvement;
+                helio_result.quality_std_improvement = a.quality_std_improvement;
+                helio_result.is_valid = true;
+                plate->set_helio_result(helio_result);
+            }
 
             HelioRatingDialog dlg(nullptr, time_origin_value, time_optimized_value, a.quality_mean_improvement, a.quality_std_improvement);
             dlg.ShowModal();
@@ -15494,7 +15499,9 @@ void Plater::load_gcode(const wxString& filename)
 
     // Clear Helio simulation/optimization results when loading a new GCode file
     // This prevents showing stale "View Summary" data from previous runs
-    p->helio_background_process.clear_last_simulation_result();
+    if (auto* plate = p->partplate_list.get_curr_plate()) {
+        plate->clear_helio_result();
+    }
 
     // cleanup view before to start loading/processing
     //BBS: update gcode to current partplate's
@@ -18002,9 +18009,8 @@ void Plater::reslice()
         p->preview->get_canvas3d()->on_back_slice_begin();
         this->SetDropTarget(nullptr);
 
-        // clear helio cache and stored simulation result
+        // clear helio cache (per-plate results are cleared in update_slice_result_valid_state)
         p->helio_background_process.clear_helio_file_cache();
-        p->helio_background_process.clear_last_simulation_result();
     }
 
     bool clean_gcode_toolpaths = true;
@@ -18051,7 +18057,10 @@ void Plater::stop_helio_process()
 {
     if (p->helio_background_process.is_running()) {
         p->helio_background_process.clear_helio_file_cache();
-        p->helio_background_process.clear_last_simulation_result();
+        // Clear helio result for current plate when canceling
+        if (auto* plate = p->partplate_list.get_curr_plate()) {
+            plate->clear_helio_result();
+        }
         p->helio_background_process.reset();
         p->helio_background_process.stop_current_helio_action();
         p->helio_background_process.stop();
@@ -20328,31 +20337,37 @@ void Plater::clear_helio_process_status() const {
 }
 
 bool Plater::has_helio_simulation_result() const {
-    return p->helio_background_process.last_action >= 0;  // Either simulation (0) or optimization (1)
+    auto* plate = p->partplate_list.get_curr_plate();
+    return plate && plate->has_helio_result();
 }
 
 bool Plater::show_helio_simulation_summary() const {
-    if (p->helio_background_process.last_action == 0) {
+    auto* plate = p->partplate_list.get_curr_plate();
+    if (!plate || !plate->has_helio_result()) return false;
+
+    const auto* result = plate->get_helio_result();
+    if (!result) return false;
+
+    if (result->action == 0) {
         // Simulation result
-        if (p->helio_background_process.last_simulation_result.printInfo) {
-            auto sim_result = p->helio_background_process.last_simulation_result;
-            auto original_print_time_seconds = p->helio_background_process.last_original_print_time_seconds;
+        if (result->simulation_result.printInfo) {
             // Get roles_times from current plate's gcode result
-            auto* gcode_result = p->partplate_list.get_curr_plate()->get_gcode_result();
+            auto* gcode_result = plate->get_gcode_result();
             if (gcode_result) {
                 auto roles_times = gcode_result->print_statistics.modes[0].roles_times;
-                HelioSimulationResultsDialog results_dlg(nullptr, sim_result, original_print_time_seconds, roles_times);
+                HelioSimulationResultsDialog results_dlg(nullptr, result->simulation_result,
+                    result->original_print_time_seconds, roles_times);
                 results_dlg.ShowModal();
                 return true;
             }
         }
-    } else if (p->helio_background_process.last_action == 1) {
+    } else if (result->action == 1) {
         // Optimization result
-        HelioRatingDialog dlg(nullptr, 
-            p->helio_background_process.last_original_print_time_seconds,
-            p->helio_background_process.last_optimized_print_time_seconds,
-            p->helio_background_process.last_quality_mean_improvement,
-            p->helio_background_process.last_quality_std_improvement);
+        HelioRatingDialog dlg(nullptr,
+            result->original_print_time_seconds,
+            result->optimized_print_time_seconds,
+            result->quality_mean_improvement,
+            result->quality_std_improvement);
         dlg.ShowModal();
         return true;
     }

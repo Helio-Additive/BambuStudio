@@ -1738,19 +1738,27 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
                             std::string url = check_simulation_progress_res.url;
                             std::string filename = m_gcode_result->filename;
                             HelioQuery::SimulationResult sim_result = check_simulation_progress_res.simulationResult;
-                            
-                            // Store simulation result for later access (e.g., "View Summary" button)
-                            last_simulation_result = sim_result;
-                            last_original_print_time_seconds = original_time_seconds;
-                            last_action = 0;  // Simulation
-                            
+
+                            // Store simulation result to current plate for later access (e.g., "View Summary" button)
+                            GUI::wxGetApp().plater()->CallAfter([sim_result, original_time_seconds]() {
+                                auto* plate = GUI::wxGetApp().plater()->get_partplate_list().get_curr_plate();
+                                if (plate) {
+                                    HelioPlateResult helio_result;
+                                    helio_result.action = 0;  // Simulation
+                                    helio_result.simulation_result = sim_result;
+                                    helio_result.original_print_time_seconds = original_time_seconds;
+                                    helio_result.is_valid = true;
+                                    plate->set_helio_result(helio_result);
+                                }
+                            });
+
                             // Start preview loading in background thread immediately
                             std::string simulated_gcode_path = create_path_for_simulated_gcode(filename);
                             HelioQuery::RatingData rating_data;
                             save_downloaded_gcode_and_load_preview(url,
                                                                    simulated_gcode_path, filename,
                                                                    notification_manager, rating_data);
-                            
+
                             // Show simulation results dialog on main thread (non-blocking for preview)
                             // Capture roles_times for calculating optimizable sections
                             auto roles_times = m_gcode_result->print_statistics.modes[0].roles_times;

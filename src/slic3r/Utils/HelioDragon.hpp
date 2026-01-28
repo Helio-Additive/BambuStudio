@@ -400,6 +400,34 @@ public:
     static std::chrono::system_clock::time_point parse_timestamp_from_name(const std::string& name);
 };
 
+// Per-plate Helio result storage
+struct HelioPlateResult {
+    int action{-1};  // -1=none, 0=simulation, 1=optimization
+
+    // Simulation data
+    HelioQuery::SimulationResult simulation_result;
+    int original_print_time_seconds{0};
+
+    // Optimization data
+    int optimized_print_time_seconds{0};
+    std::string quality_mean_improvement;
+    std::string quality_std_improvement;
+
+    bool is_valid{false};
+
+    void clear() {
+        action = -1;
+        simulation_result = HelioQuery::SimulationResult();
+        original_print_time_seconds = 0;
+        optimized_print_time_seconds = 0;
+        quality_mean_improvement.clear();
+        quality_std_improvement.clear();
+        is_valid = false;
+    }
+
+    bool has_result() const { return is_valid && action >= 0; }
+};
+
 class HelioBackgroundProcess
 {
 public:
