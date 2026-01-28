@@ -540,7 +540,7 @@ void HelioQuery::optimization_feedback(const std::string helio_api_url, const st
     auto http = Http::post(helio_api_url);
 
     http.header("Content-Type", "application/json")
-        .header("Authorization", "Bearer " + helio_api_key)
+        .header("Authorization", helio_api_key)
         .header("HelioAdditive-Client-Name", SLIC3R_APP_NAME)
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
@@ -548,9 +548,13 @@ void HelioQuery::optimization_feedback(const std::string helio_api_url, const st
     http.timeout_connect(20)
         .timeout_max(100)
         .on_complete([=](std::string body, unsigned status) {
-            BOOST_LOG_TRIVIAL(info) << "optimization_feedback" << body;
+            BOOST_LOG_TRIVIAL(info) << "optimization_feedback response: " << body << ", status: " << status;
         })
-        .on_error([](std::string body, std::string error, unsigned status) {
+        .on_error([=](std::string body, std::string error, unsigned status) {
+            BOOST_LOG_TRIVIAL(error) << "optimization_feedback error: " << error
+                                     << ", status: " << status
+                                     << ", body: " << body
+                                     << ", optimization_id: " << optimization_id;
         })
         .perform();
 }
