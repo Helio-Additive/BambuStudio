@@ -362,6 +362,11 @@ void HelioStatementDialog::create_legal_page()
     terms_header_sizer->Add(terms_arrow, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(15));
     terms_header_panel->SetSizer(terms_header_sizer);
     terms_header_panel->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) { toggle_terms_section(); });
+    terms_title->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) { toggle_terms_section(); });
+    terms_arrow->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) { toggle_terms_section(); });
+    terms_header_panel->SetCursor(wxCURSOR_HAND);
+    terms_title->SetCursor(wxCURSOR_HAND);
+    terms_arrow->SetCursor(wxCURSOR_HAND);
     
     // Terms content - use HTML for proper text flow with embedded links
     terms_content_panel = new wxPanel(terms_section_panel);
@@ -447,6 +452,11 @@ void HelioStatementDialog::create_legal_page()
     privacy_header_sizer->Add(privacy_arrow, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(15));
     privacy_header_panel->SetSizer(privacy_header_sizer);
     privacy_header_panel->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) { toggle_privacy_section(); });
+    privacy_title->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) { toggle_privacy_section(); });
+    privacy_arrow->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) { toggle_privacy_section(); });
+    privacy_header_panel->SetCursor(wxCURSOR_HAND);
+    privacy_title->SetCursor(wxCURSOR_HAND);
+    privacy_arrow->SetCursor(wxCURSOR_HAND);
     
     // Privacy content - FULL original text
     privacy_content_panel = new wxPanel(privacy_section_panel);
