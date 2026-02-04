@@ -3765,6 +3765,9 @@ wxString HelioSimulationResultsDialog::get_fix_suggestions_preview(const HelioQu
     const std::string& direction = print_info.temperatureDirection;
     
     if (direction == "NONE" && print_info.caveats.empty()) {
+        if (!m_simulation.suggestedFixes.empty()) {
+            return _L("Ready to print — see suggestions");
+        }
         return _L("Ready to print");
     }
     
@@ -3897,9 +3900,9 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
         sizer->Add(label, 0, wxTOP, FromDIP(4));
     };
     
-    if (direction == "NONE" && m_simulation.printInfo->caveats.empty()) {
-        // Ready to print - simple message
-        auto ready_label = new Label(m_fix_suggestions_content, Label::Body_13, 
+    if (direction == "NONE" && m_simulation.printInfo->caveats.empty() && m_simulation.suggestedFixes.empty()) {
+        // Ready to print - simple message (no fixes to show)
+        auto ready_label = new Label(m_fix_suggestions_content, Label::Body_13,
             _L("Your part is ready to print! Thermal conditions are within safe limits."));
         ready_label->SetForegroundColour(theme.text);
         content_sizer->Add(ready_label, 0, wxTOP, FromDIP(8));
