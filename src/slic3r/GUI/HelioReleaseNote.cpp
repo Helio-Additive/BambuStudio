@@ -3889,14 +3889,18 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
         return expander_sizer;
     };
     
-    // Helper lambda to add wrapped text label
-    auto add_wrapped_label = [&theme, this](wxPanel* parent, wxBoxSizer* sizer, const wxString& text) {
+    // Wrap widths for content inside the scrolled window, reduced to avoid text going under the scrollbar
+    int scroll_wrap_toplevel = FromDIP(475);  // top-level labels: 500 minus ~25px scrollbar buffer
+    int scroll_wrap_nested   = FromDIP(455);  // nested expander labels: also minus 16px indent + margin
+
+    // Helper lambda to add wrapped text label (used inside nested expanders)
+    auto add_wrapped_label = [&theme, this, scroll_wrap_nested](wxPanel* parent, wxBoxSizer* sizer, const wxString& text) {
         auto label = new Label(parent, Label::Body_13, text);
         label->SetForegroundColour(theme.text);
-        label->SetSize(wxSize(FromDIP(500), -1));
-        label->SetMinSize(wxSize(FromDIP(500), -1));
-        label->SetMaxSize(wxSize(FromDIP(500), -1));
-        label->Wrap(FromDIP(500));
+        label->SetSize(wxSize(scroll_wrap_nested, -1));
+        label->SetMinSize(wxSize(scroll_wrap_nested, -1));
+        label->SetMaxSize(wxSize(scroll_wrap_nested, -1));
+        label->Wrap(scroll_wrap_nested);
         sizer->Add(label, 0, wxTOP, FromDIP(4));
     };
     
@@ -3934,10 +3938,10 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
         if (!body_text.IsEmpty()) {
             auto body_label = new Label(m_fix_suggestions_content, Label::Body_13, body_text);
             body_label->SetForegroundColour(theme.text);
-            body_label->SetSize(wxSize(FromDIP(500), -1));
-            body_label->SetMinSize(wxSize(FromDIP(500), -1));
-            body_label->SetMaxSize(wxSize(FromDIP(500), -1));
-            body_label->Wrap(FromDIP(500));
+            body_label->SetSize(wxSize(scroll_wrap_toplevel, -1));
+            body_label->SetMinSize(wxSize(scroll_wrap_toplevel, -1));
+            body_label->SetMaxSize(wxSize(scroll_wrap_toplevel, -1));
+            body_label->Wrap(scroll_wrap_toplevel);
             content_sizer->Add(body_label, 0, wxTOP, FromDIP(4));
         }
         
@@ -3983,6 +3987,10 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
             
             auto quick_fixes_label = new Label(m_fix_suggestions_content, Label::Body_13, quick_fixes_text);
             quick_fixes_label->SetForegroundColour(theme.text);
+            quick_fixes_label->SetSize(wxSize(scroll_wrap_toplevel, -1));
+            quick_fixes_label->SetMinSize(wxSize(scroll_wrap_toplevel, -1));
+            quick_fixes_label->SetMaxSize(wxSize(scroll_wrap_toplevel, -1));
+            quick_fixes_label->Wrap(scroll_wrap_toplevel);
             content_sizer->Add(quick_fixes_label, 0, wxTOP | wxLEFT, FromDIP(4));
         }
         
