@@ -308,6 +308,7 @@ public:
     void                merge(bool to_multipart_object);
     void                merge_volumes(); // BBS: merge parts to single part
     void                layers_editing();
+    void                import_layer_settings_from_json();
 
     void                boolean();    // BBS: Boolean Operation of parts
     wxDataViewItem      add_layer_root_item(const wxDataViewItem obj_item);

@@ -658,12 +658,21 @@ void MenuFactory::append_menu_items_add_volume(wxMenu* menu)
     }
 
     append_menu_item_layers_editing(menu);
+    append_menu_item_import_layer_settings(menu);
 }
 
 wxMenuItem* MenuFactory::append_menu_item_layers_editing(wxMenu* menu)
 {
     return append_menu_item(menu, wxID_ANY, _L("Height range Modifier"), "",
         [](wxCommandEvent&) { obj_list()->layers_editing(); wxGetApp().params_panel()->switch_to_object(); }, "", menu,
+        []() { return obj_list()->is_instance_or_object_selected(); }, m_parent);
+}
+
+wxMenuItem* MenuFactory::append_menu_item_import_layer_settings(wxMenu* menu)
+{
+    return append_menu_item(menu, wxID_ANY, _L("Import Layer Settings from JSON..."),
+        _L("Import per-layer settings (infill, walls, etc.) from a JSON file"),
+        [](wxCommandEvent&) { obj_list()->import_layer_settings_from_json(); }, "", menu,
         []() { return obj_list()->is_instance_or_object_selected(); }, m_parent);
 }
 

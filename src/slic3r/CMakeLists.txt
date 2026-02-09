@@ -626,6 +626,8 @@ set(SLIC3R_GUI_SOURCES
     Utils/WxFontUtils.cpp
     Utils/HelioDragon.cpp
     Utils/HelioDragon.hpp
+    Utils/LayerSettingsImporter.cpp
+    Utils/LayerSettingsImporter.hpp
     Utils/FileTransferUtils.cpp
     Utils/FileTransferUtils.hpp
     Utils/CertificateVerify.hpp

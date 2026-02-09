@@ -33,6 +33,7 @@
 #include <wx/headerctrl.h>
 
 #include "slic3r/Utils/FixModelByWin10.hpp"
+#include "slic3r/Utils/LayerSettingsImporter.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
@@ -3353,6 +3354,104 @@ void ObjectList::layers_editing()
     // select LayerRoor item and expand
     select_item(layers_item);
     Expand(layers_item);
+}
+
+void ObjectList::import_layer_settings_from_json()
+{
+    const Selection& selection = scene_selection();
+    const int obj_idx = selection.get_object_idx();
+    if (obj_idx < 0)
+        return;
+
+    ModelObject* model_object = object(obj_idx);
+    if (!model_object)
+        return;
+
+    // Open file dialog
+    wxFileDialog dialog(nullptr,
+        _L("Import Layer Settings from JSON"),
+        wxEmptyString, wxEmptyString,
+        "JSON files (*.json)|*.json",
+        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+
+    if (dialog.ShowModal() != wxID_OK)
+        return;
+
+    std::string filepath = dialog.GetPath().ToStdString();
+
+    try {
+        // Parse JSON
+        LayerSettingsData settings = LayerSettingsData::parse_from_file(filepath);
+
+        // Validate
+        std::string validation_error = settings.validate();
+        if (!validation_error.empty()) {
+            MessageDialog msg(nullptr, wxString::FromUTF8(validation_error),
+                _L("Validation Error"), wxOK | wxICON_ERROR);
+            msg.ShowModal();
+            return;
+        }
+
+        // Validate against object (warnings only)
+        settings.validate_against_object(model_object);
+
+        // Confirm if replacing existing ranges
+        if (!model_object->layer_config_ranges.empty()) {
+            MessageDialog confirm(nullptr,
+                _L("This will replace existing height range settings. Continue?"),
+                _L("Confirm Import"),
+                wxYES_NO | wxICON_QUESTION);
+            if (confirm.ShowModal() != wxID_YES)
+                return;
+        }
+
+        // Take snapshot for undo
+        take_snapshot("Import layer settings");
+
+        // Get default layer height (same logic as get_default_layer_config)
+        coordf_t default_layer_height = model_object->config.has("layer_height") ?
+            model_object->config.opt_float("layer_height") :
+            wxGetApp().preset_bundle->prints.get_edited_preset().config.opt_float("layer_height");
+
+        // Apply settings
+        std::string error_msg;
+        if (!LayerSettingsImporter::apply_to_model_object(model_object, settings, default_layer_height, error_msg)) {
+            MessageDialog msg(nullptr, wxString::FromUTF8(error_msg),
+                _L("Import Error"), wxOK | wxICON_ERROR);
+            msg.ShowModal();
+            return;
+        }
+
+        // Update UI
+        changed_object(obj_idx);
+
+        // Get object item and layer root
+        wxDataViewItem obj_item = m_objects_model->GetItemById(obj_idx);
+        wxDataViewItem layers_item = m_objects_model->GetLayerRootItem(obj_item);
+
+        // Create layer root if it doesn't exist
+        if (!layers_item.IsOk()) {
+            layers_item = add_layer_root_item(obj_item);
+        }
+
+        if (layers_item.IsOk()) {
+            // Reset selection and select layers item
+            wxGetApp().obj_layers()->reset_selection();
+            wxGetApp().plater()->canvas3D()->handle_sidebar_focus_event("", false);
+            select_item(layers_item);
+            Expand(layers_item);
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "Successfully imported " << settings.layers.size()
+                                << " layer settings from " << filepath;
+    }
+    catch (const std::exception& e) {
+        MessageDialog msg(nullptr,
+            wxString::Format(_L("Failed to import JSON: %s"), e.what()),
+            _L("Import Error"),
+            wxOK | wxICON_ERROR);
+        msg.ShowModal();
+    }
 }
 
 // BBS: merge parts of a single object into one volume, similar to export_stl, but no need to export and then import
