@@ -455,12 +455,12 @@ DynamicPrintConfig LayerSettingsImporter::create_config_from_entry(const LayerSe
 
     if (entry.has_bridge_speed) {
         config.set_key_value("bridge_speed",
-            new ConfigOptionFloats({entry.bridge_speed}));
+            new ConfigOptionFloatsNullable({entry.bridge_speed}));
     }
 
     if (entry.has_internal_solid_infill_speed) {
         config.set_key_value("internal_solid_infill_speed",
-            new ConfigOptionFloats({entry.internal_solid_infill_speed}));
+            new ConfigOptionFloatsNullable({entry.internal_solid_infill_speed}));
     }
 
     if (entry.has_internal_solid_infill_pattern) {
