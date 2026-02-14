@@ -391,19 +391,60 @@ void HelioStatementDialog::create_legal_page()
     // Note: URLs are hardcoded and validated (not user input), so they are safe from XSS.
     // Translated strings from _L() are trusted content (legal terms are carefully controlled).
     // wxHtmlWindow provides basic HTML sanitization for rendered content.
-    wxString terms_html = _L("Unless otherwise specified, Bambu Lab only provides support for the software features officially provided. The slicing evaluation and slicing optimization features based on <a href=\"") + 
-        helio_home_url + _L("\" style=\"color:#00AE42; text-decoration:underline;\">Helio Additive</a>'s cloud service in this software will be developed, operated, provided, and maintained by <a href=\"") +
-        helio_home_url + _L("\" style=\"color:#00AE42; text-decoration:underline;\">Helio Additive</a>. Helio Additive is responsible for the effectiveness and availability of this service. The optimization feature of this service may modify the default print commands, posing a risk of printer damage. These features will collect necessary user information and data to achieve relevant service functions. Subscriptions and payments may be involved. Please visit <a href=\"") +
-        helio_home_url + _L("\" style=\"color:#00AE42; text-decoration:underline;\">Helio Additive</a> and refer to the <a href=\"") +
-        helio_privacy_url + _L("\" style=\"color:#00AE42; text-decoration:underline;\">Helio Additive Privacy Agreement</a> and <a href=\"") +
-        helio_tou_url + _L("\" style=\"color:#00AE42; text-decoration:underline;\">Helio Additive User Agreement</a> for detailed information.<br><br>") +
-        _L("Meanwhile, you understand that this product is provided to you \"as is\" based on <a href=\"") +
-        helio_home_url + _L("\" style=\"color:#00AE42; text-decoration:underline;\">Helio Additive</a>'s services, and Bambu Lab makes no express or implied warranties of any kind, nor can it control the service effects. To the fullest extent permitted by applicable law, Bambu Lab or its licensors/affiliates do not provide any express or implied representations or warranties, including but not limited to warranties regarding merchantability, satisfactory quality, fitness for a particular purpose, accuracy, confidentiality, and non-infringement of third-party rights. Due to the nature of network services, Bambu Lab cannot guarantee that the service will be available at all times, and Bambu Lab reserves the right to terminate the service based on relevant circumstances. You agree not to use this product and its related updates to engage in the following activities:<br><br>") +
-        _L("1. Copy or use any part of this product outside the authorized scope of Helio Additive and Bambu Lab;<br>") +
-        _L("2. Attempt to disrupt, bypass, alter, invalidate, or evade any Digital Rights Management system related to and/or an integral part of this product;<br>") +
-        _L("3. Using this software and services for any improper or illegal activities.<br><br>") +
-        _L("When you confirm to enable this feature, it means that you have confirmed and agreed to the above statements.");
-    
+    const wxString STYLE_LINK = "color:#00AE42; text-decoration:underline;";
+    const wxString STYLE_END = "\">";
+
+    const wxString TAG_A_START = "<a href=\"";
+    const wxString TAG_A_MID = "\" style=\"";
+    const wxString TAG_A_END = "</a>";
+    const wxString TAG_BR = "<br>";
+
+    const wxString URL_HELIO = helio_home_url;
+    const wxString URL_PRIVACY = helio_privacy_url;
+    const wxString URL_TOU = helio_tou_url;
+
+    const wxString TXT_HELIO = _L("Helio Additive");
+    const wxString TXT_PRIVACY = _L("Helio Additive Privacy Agreement");
+    const wxString TXT_TOU = _L("Helio Additive User Agreement");
+
+    const wxString TXT_P1_S1 = _L("Unless otherwise specified, Bambu Lab only provides support for the software features officially provided. The slicing evaluation and slicing optimization features based on ");
+    const wxString TXT_P1_S2 = _L("'s cloud service in this software will be developed, operated, provided, and maintained by ");
+    const wxString TXT_P1_S3 = _L(". Helio Additive is responsible for the effectiveness and availability of this service. The optimization feature of this service may modify the default print commands, posing a risk of printer damage. These features will collect necessary user information and data to achieve relevant service functions. Subscriptions and payments may be involved. Please visit ");
+    const wxString TXT_P1_S4 = _L(" and refer to the ");
+    const wxString TXT_P1_S5 = _L(" and ");
+    const wxString TXT_P1_S6 = _L(" for detailed information.");
+
+    const wxString TXT_P2_S1 = _L("Meanwhile, you understand that this product is provided to you \"as is\" based on ");
+    const wxString TXT_P2_S2 = _L("'s services, and Bambu Lab makes no express or implied warranties of any kind, nor can it control the service effects. To the fullest extent permitted by applicable law, Bambu Lab or its licensors/affiliates do not provide any express or implied representations or warranties, including but not limited to warranties regarding merchantability, satisfactory quality, fitness for a particular purpose, accuracy, confidentiality, and non-infringement of third-party rights. Due to the nature of network services, Bambu Lab cannot guarantee that the service will be available at all times, and Bambu Lab reserves the right to terminate the service based on relevant circumstances. You agree not to use this product and its related updates to engage in the following activities:");
+
+    const wxString TXT_ITEM_1 = _L("1. Copy or use any part of this product outside the authorized scope of Helio Additive and Bambu Lab;");
+    const wxString TXT_ITEM_2 = _L("2. Attempt to disrupt, bypass, alter, invalidate, or evade any Digital Rights Management system related to and/or an integral part of this product;");
+    const wxString TXT_ITEM_3 = _L("3. Using this software and services for any improper or illegal activities.");
+
+    const wxString TXT_FINAL = _L("When you confirm to enable this feature, it means that you have confirmed and agreed to the above statements.");
+
+    #define LINK(url, text) TAG_A_START + url + TAG_A_MID + STYLE_LINK + STYLE_END + text + TAG_A_END
+
+    wxString terms_html =
+    TXT_P1_S1 + LINK(URL_HELIO, TXT_HELIO) +
+    TXT_P1_S2 + LINK(URL_HELIO, TXT_HELIO) +
+    TXT_P1_S3 + LINK(URL_HELIO, TXT_HELIO) +
+    TXT_P1_S4 + LINK(URL_PRIVACY, TXT_PRIVACY) +
+    TXT_P1_S5 + LINK(URL_TOU, TXT_TOU) +
+    TXT_P1_S6 + TAG_BR + TAG_BR +
+
+    TXT_P2_S1 + LINK(URL_HELIO, TXT_HELIO) +
+    TXT_P2_S2 + TAG_BR + TAG_BR +
+
+    TXT_ITEM_1 + TAG_BR +
+    TXT_ITEM_2 + TAG_BR +
+    TXT_ITEM_3 + TAG_BR + TAG_BR +
+
+    TXT_FINAL;
+
+    #undef LINK
+
+
     // Use wxHtmlWindow for proper text rendering with embedded links
     wxHtmlWindow* terms_html_window = new wxHtmlWindow(terms_content_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxHW_SCROLLBAR_AUTO | wxHW_NO_SELECTION);
     terms_html_window->SetBackgroundColour(wxColour(55, 55, 59));
@@ -2628,11 +2669,27 @@ void HelioInputDialog::populate_print_priority_dropdown(ComboBox* combobox)
     for (size_t i = 0; i < m_available_print_priority_options.size(); i++) {
         const auto& option = m_available_print_priority_options[i];
 
-        // Add item
-        combobox->Append(wxString::FromUTF8(option.label.c_str()));
+        // Map known API values to local translated strings.
+        // Fall back to API label/description for unknown options (future-safe).
+        wxString display_label;
+        wxString display_description;
+        if (option.value == "SPEED_AND_STRENGTH") {
+            display_label = _L("Speed & Strength");           // 速度与强度
+            display_description = _L("Optimizes outer walls for improved performance.");
+        } else if (option.value == "PRESERVE_SURFACE_FINISH") {
+            display_label = _L("Preserve Surface Finish");    // 保持表面质量
+            display_description = _L("Maintains original wall speeds to preserve visual finish.");
+        } else if (option.value == "ENHANCE_SURFACE_GLOSS") {
+            display_label = _L("Enhance Surface Gloss");      // 增强表面光泽
+            display_description = _L("Optimizes for enhanced surface gloss.");
+        } else {
+            // Unknown option — use API strings directly (won't be translated, but won't break)
+            display_label = wxString::FromUTF8(option.label.c_str());
+            display_description = wxString::FromUTF8(option.description.c_str());
+        }
 
-        // Set tooltip with description
-        combobox->SetItemTooltip(i, wxString::FromUTF8(option.description.c_str()));
+        combobox->Append(display_label);
+        combobox->SetItemTooltip(i, display_description);
 
         // Set default selection to first SPEED_AND_STRENGTH option
         if (default_selection == -1 && option.value == "SPEED_AND_STRENGTH") {
@@ -3903,7 +3960,7 @@ void HelioSimulationResultsDialog::create_fix_suggestions_section(wxBoxSizer* pa
         label->Wrap(scroll_wrap_nested);
         sizer->Add(label, 0, wxTOP, FromDIP(4));
     };
-    
+
     if (direction == "NONE" && m_simulation.printInfo->caveats.empty() && m_simulation.suggestedFixes.empty()) {
         // Ready to print - simple message (no fixes to show)
         auto ready_label = new Label(m_fix_suggestions_content, Label::Body_13,
