@@ -10437,13 +10437,13 @@ public:
         // Go back button (recommended) - right aligned
         wxBoxSizer* option2_button_sizer = new wxBoxSizer(wxHORIZONTAL);
         option2_button_sizer->AddStretchSpacer();
-        
-        StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed),
-                               std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
-                               std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
-        
+
+        StateColor btn_bg_green2(std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed),
+                                 std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
+                                 std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+
         Button* goback_button = new Button(option2_box, _L("Go Back"));
-        goback_button->SetBackgroundColor(btn_bg_green);
+        goback_button->SetBackgroundColor(btn_bg_green2);
         goback_button->SetBorderColor(*wxWHITE);
         goback_button->SetTextColor(wxColour("#FFFFFE"));
         goback_button->SetFont(Label::Body_12);
@@ -10455,10 +10455,10 @@ public:
             EndModal(wxID_CANCEL);
         });
         option2_button_sizer->Add(goback_button, 0);
-        
-        option2_sizer->Add(option2_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
-        option2_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
-        
+
+        option2_sizer->Add(option2_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(20, this));
+        option2_sizer->AddSpacer(wxWindowBase::FromDIP(18, this));
+
         option2_box->SetSizer(option2_sizer);
         main_sizer->Add(option2_box, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
         
@@ -10685,15 +10685,15 @@ public:
             wxDefaultPosition, wxDefaultSize, wxHL_DEFAULT_STYLE);
         option2_sizer->Add(supported_materials_link, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
         option2_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
-        
+
         // Go back button - right aligned
         wxBoxSizer* option2_button_sizer = new wxBoxSizer(wxHORIZONTAL);
         option2_button_sizer->AddStretchSpacer();
-        
+
         StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed),
-                               std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
-                               std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
-        
+                                std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
+                                std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+
         Button* goback_button = new Button(option2_box, _L("Go Back"));
         goback_button->SetBackgroundColor(btn_bg_green);
         goback_button->SetBorderColor(*wxWHITE);
@@ -10707,10 +10707,10 @@ public:
             EndModal(wxID_CANCEL);
         });
         option2_button_sizer->Add(goback_button, 0);
-        
-        option2_sizer->Add(option2_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
-        option2_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
-        
+
+        option2_sizer->Add(option2_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(20, this));
+        option2_sizer->AddSpacer(wxWindowBase::FromDIP(18, this));
+
         option2_box->SetSizer(option2_sizer);
         main_sizer->Add(option2_box, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
         
@@ -11425,12 +11425,12 @@ int Plater::priv::update_helio_background_process(std::string& printer_id,
                     goback_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &e) { EndModal(wxID_CANCEL); });
                     option2_button_sizer->Add(goback_button, 0);
                     
-                    option2_sizer->Add(option2_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
-                    option2_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
-                    
+                    option2_sizer->Add(option2_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(20, this));
+                    option2_sizer->AddSpacer(wxWindowBase::FromDIP(18, this));
+
                     option2_box->SetSizer(option2_sizer);
                     main_sizer->Add(option2_box, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
-                    
+
                     SetSizer(main_sizer);
                     // On Windows, UpdateDlgDarkUI may change non-client metrics (titlebar/theme).
                     // Apply it before fitting the dialog to avoid bottom content being clipped.
