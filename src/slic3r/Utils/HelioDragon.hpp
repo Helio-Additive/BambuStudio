@@ -31,9 +31,17 @@ class DynamicPrintConfig;
 class Http;
 class AppConfig;
 
+// Standalone struct so Plater.hpp can forward-declare it without including this header
+struct HelioMaterialInput {
+    std::string materialId;
+    int slotIndex;    // 0-based filament index (matches gcode M1020 S commands)
+    int nozzleIndex;  // 0-based physical nozzle (0=Left/single, 1=Right for H2D)
+};
+
 class HelioQuery
 {
 public:
+    using MaterialInput = HelioMaterialInput;
     struct SimulationInput
     {
         float chamber_temp{ -1 };
@@ -287,11 +295,20 @@ public:
                                         const std::string& helio_api_key,
                                         const std::string& gcode_id);
 
+    // V2: single material (used when feature flag helio_multimaterial_enabled is OFF)
     static CreateGCodeResult  create_gcode(const std::string key,
                                            const std::string helio_api_url,
                                            const std::string helio_api_key,
                                            const std::string printer_id,
                                            const std::string filament_id);
+
+    // V3: multi-material (used when feature flag helio_multimaterial_enabled is ON)
+    static CreateGCodeResult  create_gcode_v3(const std::string key,
+                                              const std::string helio_api_url,
+                                              const std::string helio_api_key,
+                                              const std::string printer_id,
+                                              const std::vector<MaterialInput>& materials,
+                                              bool isMultiColor, bool isMultiMaterial);
 
     static void request_all_support_machine(const std::string helio_api_url, const std::string helio_api_key)
     {
@@ -452,7 +469,13 @@ public:
     std::string             helio_api_key;
     std::string             helio_api_url;
     std::string             printer_id;
+    // V2 path (single material)
     std::string             filament_id;
+    // V3 path (multi-material)
+    std::vector<HelioQuery::MaterialInput> materials;
+    bool                    is_multi_color{false};
+    bool                    is_multi_material{false};
+    bool                    use_v3{false}; // true when V3 multi-material path is active
 
     int                     action; //0-simulation 1-optimization
 
@@ -571,6 +594,7 @@ public:
         }
     }
 
+    // V2 init: single filament_id (used when feature flag is OFF)
     void init(std::string                   api_key,
               std::string                   api_url,
               std::string                   printer_id,
@@ -586,9 +610,40 @@ public:
         helio_api_url     = api_url;
         this->printer_id  = printer_id;
         this->filament_id = filament_id;
+        this->use_v3      = false;
+        this->materials.clear();
+        this->is_multi_color    = false;
+        this->is_multi_material = false;
         m_gcode_result    = gcode_result;
         m_preview         = preview;
         m_update_function = function;
+    }
+
+    // V3 init: multi-material (used when feature flag is ON)
+    void init(std::string                   api_key,
+              std::string                   api_url,
+              std::string                   printer_id,
+              const std::vector<HelioQuery::MaterialInput>& materials,
+              bool                          is_multi_color,
+              bool                          is_multi_material,
+              Slic3r::GCodeProcessorResult* gcode_result,
+              Slic3r::GUI::Preview*         preview,
+              std::function<void()>         function)
+    {
+        m_state = STATE_STARTED;
+        m_gcode_processor.reset();
+        helio_origin_key       = api_key;
+        helio_api_key          = "Bearer " + api_key;
+        helio_api_url          = api_url;
+        this->printer_id       = printer_id;
+        this->filament_id.clear();
+        this->use_v3           = true;
+        this->materials        = materials;
+        this->is_multi_color   = is_multi_color;
+        this->is_multi_material = is_multi_material;
+        m_gcode_result         = gcode_result;
+        m_preview              = preview;
+        m_update_function      = function;
     }
 
     void reset()

@@ -838,7 +838,50 @@ void HelioStatementDialog::create_pat_page()
     button_row->Add(history_button, 0, wxALIGN_CENTER_VERTICAL, 0);
 
     content_sizer->Add(button_row, 0, wxALIGN_CENTER, 0);
-    content_sizer->Add(0, 0, 0, wxTOP, FromDIP(40));
+    content_sizer->Add(0, 0, 0, wxTOP, FromDIP(24));
+
+    // Multi-material feature toggle
+    {
+        wxBoxSizer* mm_row = new wxBoxSizer(wxHORIZONTAL);
+        auto* mm_checkbox = new ::CheckBox(page_pat_panel);
+
+        // Read current setting (default: enabled)
+        bool mm_enabled = (wxGetApp().app_config->get("helio_multimaterial_enabled") != "false");
+        mm_checkbox->SetValue(mm_enabled);
+
+        auto* mm_label = new Label(page_pat_panel, Label::Body_13,
+            _L("Enable multi-material support (V3 API)"));
+        mm_label->SetForegroundColour(HELIO_MUTED);
+        mm_label->SetToolTip(_L("When enabled, Helio uses the V3 API with per-slot material mapping for true multi-material prints.\n"
+                                "When disabled, the original V2 single-material API is used."));
+
+        mm_checkbox->Bind(wxEVT_TOGGLEBUTTON, [mm_checkbox](wxCommandEvent& e) {
+            bool enabled = mm_checkbox->GetValue();
+            wxGetApp().app_config->set("helio_multimaterial_enabled", enabled ? "true" : "false");
+            wxGetApp().app_config->save();
+            BOOST_LOG_TRIVIAL(info) << "helio_multimaterial_enabled set to " << (enabled ? "true" : "false");
+            mm_checkbox->Refresh(false);
+            mm_checkbox->Update();
+            e.Skip();
+        });
+
+        // Make label clickable too
+        mm_label->Bind(wxEVT_LEFT_DOWN, [mm_checkbox](wxMouseEvent& e) {
+            bool new_value = !mm_checkbox->GetValue();
+            mm_checkbox->SetValue(new_value);
+            wxGetApp().app_config->set("helio_multimaterial_enabled", new_value ? "true" : "false");
+            wxGetApp().app_config->save();
+            BOOST_LOG_TRIVIAL(info) << "helio_multimaterial_enabled set to " << (new_value ? "true" : "false");
+            mm_checkbox->Refresh(false);
+            mm_checkbox->Update();
+        });
+
+        mm_row->Add(mm_checkbox, 0, wxALIGN_CENTER_VERTICAL, 0);
+        mm_row->Add(mm_label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+        content_sizer->Add(mm_row, 0, wxALIGN_CENTER, 0);
+    }
+
+    content_sizer->Add(0, 0, 0, wxTOP, FromDIP(24));
     content_sizer->Add(helio_links_sizer, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(20));
     
@@ -2747,44 +2790,42 @@ void HelioInputDialog::fetch_print_priority_options()
         return;
     }
 
-    // Create a shared_ptr to this dialog to keep it alive during async callback
-    auto self_ptr = shared_ptr; // Keep the dialog alive
+    // Use weak_ptr to detect dialog destruction before accessing 'this' in async callback
+    std::weak_ptr<int> weak_ptr = shared_ptr;
 
     HelioQuery::request_print_priority_options(
         helio_api_url,
         helio_api_key,
         m_material_id,
-        [this, self_ptr](HelioQuery::GetPrintPriorityOptionsResult result) {
-            // Use CallAfter to update UI from main thread
-            // Keep self_ptr capture to ensure dialog stays alive during callback
-            CallAfter([this, self_ptr, result]() {
-                // Validate self_ptr to ensure dialog is still alive
-                // self_ptr is a shared_ptr<int> member - if it's valid, the dialog is valid
-                if (!self_ptr || self_ptr.use_count() == 0) return;
+        [this, weak_ptr](HelioQuery::GetPrintPriorityOptionsResult result) {
+            // Check if dialog is still alive before calling CallAfter on 'this'
+            if (auto temp_ptr = weak_ptr.lock()) {
+                CallAfter([this, weak_ptr, result]() {
+                    // Check again on main thread — dialog may have been destroyed between post and dispatch
+                    if (auto temp_ptr2 = weak_ptr.lock()) {
+                        m_print_priority_loading = false;
 
-                m_print_priority_loading = false;
+                        if (result.success && !result.options.empty()) {
+                            m_print_priority_options = result.options;
+                        } else {
+                            BOOST_LOG_TRIVIAL(error) << "fetch_print_priority_options failed: " << result.error
+                                                    << ", trace-id: " << result.trace_id;
 
-                if (result.success && !result.options.empty()) {
-                    m_print_priority_options = result.options;
-                } else {
-                    // Log error and use fallback
-                    BOOST_LOG_TRIVIAL(error) << "fetch_print_priority_options failed: " << result.error
-                                            << ", trace-id: " << result.trace_id;
+                            auto notification_manager = wxGetApp().plater()->get_notification_manager();
+                            if (notification_manager) {
+                                notification_manager->push_notification(
+                                    NotificationType::CustomNotification,
+                                    NotificationManager::NotificationLevel::WarningNotificationLevel,
+                                    _u8L("Failed to load print priority options from Helio API.\n"
+                                         "Using standard optimization method instead (same as before print priority feature).")
+                                );
+                            }
+                        }
 
-                    // Show notification to user about using standard optimization method
-                    auto notification_manager = wxGetApp().plater()->get_notification_manager();
-                    if (notification_manager) {
-                        notification_manager->push_notification(
-                            NotificationType::CustomNotification,
-                            NotificationManager::NotificationLevel::WarningNotificationLevel,
-                            _u8L("Failed to load print priority options from Helio API.\n"
-                                 "Using standard optimization method instead (same as before print priority feature).")
-                        );
+                        update_print_priority_dropdown();
                     }
-                }
-
-                update_print_priority_dropdown();
-            });
+                });
+            }
         }
     );
 }
