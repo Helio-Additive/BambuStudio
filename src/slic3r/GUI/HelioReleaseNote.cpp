@@ -2843,12 +2843,16 @@ static bool s_get_double_regex(const wxString& str, double& value)
 {
     value = -1;
 
-    std::string s = str.ToStdString();
+    // Normalize comma decimal separator to dot for locale-independent parsing
+    wxString normalized = str;
+    normalized.Replace(",", ".");
+
+    std::string s = normalized.ToStdString();
     std::regex  pattern("^[-+]?[0-9]*\\.?[0-9]+$");
 
     if (std::regex_match(s, pattern))
     {
-        return str.ToDouble(&value);
+        return normalized.ToCDouble(&value);
     }
 
     return false;

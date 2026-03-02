@@ -27,6 +27,8 @@
 #include <wx/filedlg.h>
 #include <wx/dnd.h>
 #include <wx/progdlg.h>
+#include <wx/timer.h>
+#include <wx/gauge.h>
 #include <wx/wupdlock.h>
 #include <wx/numdlg.h>
 #include <wx/debug.h>
@@ -10713,7 +10715,61 @@ public:
 
         option2_box->SetSizer(option2_sizer);
         main_sizer->Add(option2_box, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
-        
+
+        // Option 3: Refresh & Retry - re-fetch data from server
+        wxColour option3_bg = is_dark_mode ? wxColour(40, 45, 60) : wxColour("#EBF0FA");
+        wxColour option3_border = is_dark_mode ? wxColour(80, 100, 140) : wxColour("#B0C4DE");
+
+        StaticBox* option3_box = new StaticBox(this, wxID_ANY, wxDefaultPosition,
+                                               wxSize(wxWindowBase::FromDIP(470, this), -1));
+        option3_box->SetBackgroundColor(StateColor(std::make_pair(option3_bg, (int)StateColor::Normal)));
+        option3_box->SetBackgroundColour(option3_bg);
+        option3_box->SetBorderColor(StateColor(std::make_pair(option3_border, (int)StateColor::Normal)));
+        option3_box->SetBorderWidth(1);
+        option3_box->SetCornerRadius(wxWindowBase::FromDIP(6, this));
+
+        wxBoxSizer* option3_sizer = new wxBoxSizer(wxVERTICAL);
+        option3_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
+
+        Label* option3_title = new Label(option3_box, Label::Head_14, _L("Option 3: Refresh supported materials list"));
+        option3_title->SetForegroundColour(text_color);
+        option3_sizer->Add(option3_title, 0, wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option3_sizer->AddSpacer(wxWindowBase::FromDIP(8, this));
+
+        Label* option3_desc = new Label(option3_box, Label::Body_13,
+            _L("Re-download the supported printers and materials list from Helio, then re-check compatibility."), LB_AUTO_WRAP);
+        option3_desc->SetForegroundColour(text_color);
+        option3_desc->Wrap(wxWindowBase::FromDIP(440, this));
+        option3_sizer->Add(option3_desc, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option3_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
+
+        wxBoxSizer* option3_button_sizer = new wxBoxSizer(wxHORIZONTAL);
+        option3_button_sizer->AddStretchSpacer();
+
+        StateColor btn_bg_blue(std::pair<wxColour, int>(wxColour(40, 80, 140), StateColor::Pressed),
+                               std::pair<wxColour, int>(wxColour(80, 130, 200), StateColor::Hovered),
+                               std::pair<wxColour, int>(wxColour(60, 110, 180), StateColor::Normal));
+
+        Button* refresh_button = new Button(option3_box, _L("Refresh & Retry"));
+        refresh_button->SetBackgroundColor(btn_bg_blue);
+        refresh_button->SetBorderColor(*wxWHITE);
+        refresh_button->SetTextColor(wxColour("#FFFFFE"));
+        refresh_button->SetFont(Label::Body_12);
+        refresh_button->SetSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
+        refresh_button->SetMinSize(wxSize(wxWindowBase::FromDIP(130, this), wxWindowBase::FromDIP(28, this)));
+        refresh_button->SetCornerRadius(wxWindowBase::FromDIP(12, this));
+        refresh_button->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& e) {
+            m_user_choice = 3;
+            EndModal(wxID_APPLY);
+        });
+        option3_button_sizer->Add(refresh_button, 0);
+
+        option3_sizer->Add(option3_button_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(16, this));
+        option3_sizer->AddSpacer(wxWindowBase::FromDIP(12, this));
+
+        option3_box->SetSizer(option3_sizer);
+        main_sizer->Add(option3_box, 0, wxLEFT | wxRIGHT | wxBOTTOM, wxWindowBase::FromDIP(15, this));
+
         SetSizerAndFit(main_sizer);
         {
             wxWindow* parent = GetParent();
@@ -10739,6 +10795,69 @@ private:
     ComboBox* m_material_combo;
     std::string m_selected_material_id;
     int m_user_choice;
+};
+
+// Progress dialog shown while re-fetching supported printers/materials from Helio
+class HelioSyncProgressDialog : public DPIDialog {
+public:
+    HelioSyncProgressDialog(wxWindow* parent)
+        : DPIDialog(parent, wxID_ANY, _L("Syncing Data"),
+                   wxDefaultPosition, wxDefaultSize, wxCAPTION)
+    {
+        SetBackgroundColour(StateColor::darkModeColorFor(*wxWHITE));
+
+        wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+        sizer->SetMinSize(wxSize(wxWindowBase::FromDIP(350, this), -1));
+        sizer->AddSpacer(wxWindowBase::FromDIP(20, this));
+
+        Label* label = new Label(this, Label::Body_14, _L("Refreshing printer and material data..."));
+        label->SetForegroundColour(wxGetApp().get_label_clr_default());
+        sizer->Add(label, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(20, this));
+        sizer->AddSpacer(wxWindowBase::FromDIP(15, this));
+
+        m_gauge = new wxGauge(this, wxID_ANY, 100, wxDefaultPosition,
+                              wxSize(wxWindowBase::FromDIP(300, this), -1), wxGA_HORIZONTAL);
+        m_gauge->Pulse();
+        sizer->Add(m_gauge, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, wxWindowBase::FromDIP(20, this));
+        sizer->AddSpacer(wxWindowBase::FromDIP(20, this));
+
+        SetSizerAndFit(sizer);
+        CentreOnParent();
+        wxGetApp().UpdateDlgDarkUI(this);
+
+        m_timer = new wxTimer(this);
+        Bind(wxEVT_TIMER, &HelioSyncProgressDialog::OnTimer, this);
+        m_start_time = std::chrono::steady_clock::now();
+        m_timer->Start(500);
+    }
+
+    ~HelioSyncProgressDialog() {
+        if (m_timer) {
+            m_timer->Stop();
+            delete m_timer;
+        }
+    }
+
+    void on_dpi_changed(const wxRect& suggested_rect) override {}
+
+private:
+    void OnTimer(wxTimerEvent&) {
+        m_gauge->Pulse();
+        if (HelioQuery::global_printers_fully_loaded && HelioQuery::global_materials_fully_loaded) {
+            EndModal(wxID_OK);
+            return;
+        }
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - m_start_time).count();
+        if (elapsed >= 15) {
+            EndModal(wxID_CANCEL);
+            return;
+        }
+    }
+
+    wxTimer* m_timer;
+    wxGauge* m_gauge;
+    std::chrono::steady_clock::time_point m_start_time;
 };
 
 // ===========================================================================
@@ -11645,14 +11764,40 @@ int Plater::priv::update_helio_background_process(std::string& printer_id,
                 if (!m.materialId.empty()) { default_material_id = m.materialId; break; }
             }
 
-            HelioUnsupportedFilamentsDialog unsupported_dialog(
-                static_cast<wxWindow*>(wxGetApp().mainframe),
-                unsupported_for_slot, similar_materials, default_material_id);
-            unsupported_dialog.ShowModal();
+            int choice = 0;
+            std::string selected_ref_material_id;
+            do {
+                HelioUnsupportedFilamentsDialog unsupported_dialog(
+                    static_cast<wxWindow*>(wxGetApp().mainframe),
+                    unsupported_for_slot, similar_materials, default_material_id);
+                unsupported_dialog.ShowModal();
 
-            int choice = unsupported_dialog.get_user_choice();
+                choice = unsupported_dialog.get_user_choice();
+                selected_ref_material_id = unsupported_dialog.get_selected_material_id();
+
+                if (choice == 3) {
+                    // Re-fetch supported data from Helio
+                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": User chose to refresh supported data for slot " << i;
+                    std::string helio_api_url = HelioQuery::get_helio_api_url();
+                    std::string helio_api_key = HelioQuery::get_helio_pat();
+                    HelioQuery::request_all_support_machine(helio_api_url, helio_api_key);
+                    HelioQuery::request_all_support_materials(helio_api_url, helio_api_key);
+
+                    // Show progress dialog while data syncs
+                    HelioSyncProgressDialog sync_dlg(static_cast<wxWindow*>(wxGetApp().mainframe));
+                    sync_dlg.ShowModal();
+
+                    // Re-compute similar materials with refreshed data
+                    similar_materials = find_similar_materials(target_name, keywords);
+                    if (similar_materials.empty()) {
+                        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": No similar materials found after refresh for slot " << i;
+                        break;
+                    }
+                }
+            } while (choice == 3);
+
             if (choice == 1) {
-                materials[i].materialId = unsupported_dialog.get_selected_material_id();
+                materials[i].materialId = selected_ref_material_id;
                 helio_using_reference_material = true;
                 BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(": User selected reference material for slot %1%: %2%")
                                             % i % materials[i].materialId;
@@ -11940,7 +12085,7 @@ void Plater::priv::on_helio_input_dlg(SimpleEvent &a)
         }
     }
     else {
-        if (HelioQuery::global_supported_printers.size() <= 0 || HelioQuery::global_supported_materials.size() <= 0) {
+        if (!HelioQuery::global_printers_fully_loaded || !HelioQuery::global_materials_fully_loaded) {
             wxGetApp().request_helio_supported_data();
             auto dlg = MessageDialog(nullptr, _L("The printer list and material list are being synchronized. Please try again later."), _L("Synchronizing Helio"), wxOK | wxICON_WARNING);
             dlg.ShowModal();
