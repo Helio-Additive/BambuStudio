@@ -845,12 +845,12 @@ void HelioStatementDialog::create_pat_page()
         wxBoxSizer* mm_row = new wxBoxSizer(wxHORIZONTAL);
         auto* mm_checkbox = new ::CheckBox(page_pat_panel);
 
-        // Read current setting (default: enabled)
-        bool mm_enabled = (wxGetApp().app_config->get("helio_multimaterial_enabled") != "false");
+        // Read current setting (default: disabled)
+        bool mm_enabled = (wxGetApp().app_config->get("helio_multimaterial_enabled") == "true");
         mm_checkbox->SetValue(mm_enabled);
 
         auto* mm_label = new Label(page_pat_panel, Label::Body_13,
-            _L("Enable multi-material support (V3 API)"));
+            _L("Experimental: Enable multi-material support"));
         mm_label->SetForegroundColour(HELIO_MUTED);
         mm_label->SetToolTip(_L("When enabled, Helio uses the V3 API with per-slot material mapping for true multi-material prints.\n"
                                 "When disabled, the original V2 single-material API is used."));

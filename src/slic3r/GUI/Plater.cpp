@@ -11267,7 +11267,7 @@ int Plater::priv::update_helio_background_process_v2(std::string& printer_id, st
 
 // ===========================================================================
 // V3 PATH: Per-slot materials[], nozzle mapping, createGcodeV3
-// Used when helio_multimaterial_enabled feature flag is ON (default)
+// Used when helio_multimaterial_enabled feature flag is ON
 // ===========================================================================
 int Plater::priv::update_helio_background_process(std::string& printer_id,
                                                    std::vector<HelioQuery::MaterialInput>& materials,
@@ -11951,7 +11951,7 @@ void Plater::priv::on_helio_process()
     std::string helio_api_key = Slic3r::HelioQuery::get_helio_pat();
 
     // Check feature flag: multi-material V3 enabled?
-    bool multimaterial_enabled = (wxGetApp().app_config->get("helio_multimaterial_enabled") != "false");
+    bool multimaterial_enabled = (wxGetApp().app_config->get("helio_multimaterial_enabled") == "true");
 
     std::string printer_id;
     std::string material_id;  // V2 path
