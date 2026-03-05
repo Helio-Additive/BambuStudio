@@ -1923,16 +1923,11 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     if (show_temp_input) {
         chamber_temp_item_for_optimization = create_input_item(card_environment, "chamber_temp_for_optimization", is_no_chamber?_L("Environment Temperature"):_L("Chamber Temperature"), wxT("\u00B0C"), {chamber_temp_checker});
         m_input_items["chamber_temp_for_optimization"]->GetTextCtrl()->SetHint(wxT("5-70"));
-        wxString temp_tooltip = is_no_chamber
-            ? _L("Refers to the environment temperature of the print (i.e. A-series - room temperature). Changing chamber temperature when running an assessment/simulation allows you to play around with different temperature scenarios.")
-            : _L("Optional. Uses the chamber temperature from Filament settings when available; you can override it here.");
+        wxString temp_tooltip = _L("Refers to the environment temperature of the print (i.e. A-series - room temperature). Changing chamber temperature when running an assessment/simulation allows you to play around with different temperature scenarios.");
         m_input_items["chamber_temp_for_optimization"]->GetTextCtrl()->SetToolTip(temp_tooltip);
         m_input_items["chamber_temp_for_optimization"]->SetToolTip(temp_tooltip);
 
-        sub_optimization = new Label(card_environment,
-            is_no_chamber
-                ? _L("Optional. More accurate temperatures ensures better results.")
-                : _L("Optional. Uses the chamber temperature from Filament settings when available; you can override it here."));
+        sub_optimization = new Label(card_environment, _L("Optional. More accurate temperatures ensures better results."));
         sub_optimization->SetForegroundColour(theme.muted);
         sub_optimization->SetSize(wxSize(FromDIP(400), -1));
         sub_optimization->Wrap(FromDIP(400));
