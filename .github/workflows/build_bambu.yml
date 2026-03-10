@@ -122,6 +122,10 @@ jobs:
             cp -R "$REAL_RESOURCES" "$RESOURCES"
           fi
 
+          # Clean unsealed content that breaks codesign
+          find "$APP_DST" -name '.DS_Store' -delete
+          find "$APP_DST" -name '*.pyc' -delete
+
           # Bundle external dylibs
           MACOS_BIN="$APP_DST/Contents/MacOS/BambuStudio"
           FRAMEWORKS="$APP_DST/Contents/Frameworks"
@@ -167,9 +171,13 @@ jobs:
           fi
           APP_PATH="${{ github.workspace }}/build/${BUILD_ARCH}/BambuStudio/BambuStudio.app"
 
-          find "$APP_PATH/Contents/Frameworks" -name "*.dylib" -exec codesign --force --options runtime --sign "$IDENTITY" {} \;
-          codesign --force --deep --options runtime --sign "$IDENTITY" "$APP_PATH"
-          codesign --verify --deep --strict "$APP_PATH"
+          # Sign all nested executables, dylibs, and frameworks first
+          find "$APP_PATH/Contents" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -not -path "*/MacOS/BambuStudio" | while read -r f; do
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" "$f" 2>/dev/null || true
+          done
+          # Sign the main app bundle
+          codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Notarize mac app
         if: inputs.os == 'macos-13' || inputs.os == 'macos-15'
