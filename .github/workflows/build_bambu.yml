@@ -122,9 +122,13 @@ jobs:
             cp -R "$REAL_RESOURCES" "$RESOURCES"
           fi
 
-          # Clean unsealed content that breaks codesign
+          # Ensure only Contents/ exists in the bundle root (unsealed contents break codesign)
+          find "$APP_DST" -maxdepth 1 -not -name Contents -not -path "$APP_DST" -exec rm -rf {} \;
           find "$APP_DST" -name '.DS_Store' -delete
           find "$APP_DST" -name '*.pyc' -delete
+          find "$APP_DST" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+          echo "Bundle root contents:"
+          ls -la "$APP_DST/"
 
           # Bundle external dylibs
           MACOS_BIN="$APP_DST/Contents/MacOS/BambuStudio"
