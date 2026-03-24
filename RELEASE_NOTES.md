@@ -1,7 +1,7 @@
 # Helio Additive for BambuStudio - Release Notes
 
-**Version:** Helio Additive Integration
-**Base:** BambuStudio (from [bambulab/BambuStudio](https://github.com/bambulab/BambuStudio))
+**Version:** 1.0.0-helio (2026-03-24)
+**Base:** BambuStudio v02.04.00.70 (from [bambulab/BambuStudio](https://github.com/bambulab/BambuStudio))
 
 This document describes the changes and additions made in the Helio-Additive fork of BambuStudio compared to the upstream BambuStudio repository.
 
@@ -182,7 +182,7 @@ The Helio-Additive fork integrates **Helio Additive** functionality into BambuSt
 - Complete translations for all new Helio features
 - Welcome screen translations
 - Dialog and tooltip translations
-- Fixed "保存" vs "节省" for time saving context
+- Fixed translation for time saving context: Use "节省" (to save/conserve) for time-saving displays instead of "保存" (to keep/store) which is used for file saving operations
 
 ### Translation Infrastructure
 - New translation keys for Helio features
@@ -226,7 +226,7 @@ None. All changes are additive and maintain compatibility with standard BambuStu
 
 ## Known Limitations
 
-- Infill combination shows a non-blocking warning dialog (may return erroneous results)
+- **Infill combination warning**: When "Infill Combination" is enabled in print settings, Helio shows a non-blocking dialog warning that this feature is unsupported. Users may proceed, but thermal analysis accuracy may be reduced for models with complex infill patterns that use infill combination.
 - By-object print sequence is now supported (previous restriction removed)
 
 ---
