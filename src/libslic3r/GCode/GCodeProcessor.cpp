@@ -1475,6 +1475,13 @@ void GCodeProcessorResult::reset() {
     //BBS: add toolpath_outside
     toolpath_outside = false;
     is_helio_gcode   = false;
+    warpage_shrinkage_x_pct = NAN;
+    warpage_shrinkage_y_pct = NAN;
+    warpage_shrinkage_z_pct = NAN;
+    warpage_max_displacement_mm = NAN;
+    warpage_max_hull_shrinkage_um = NAN;
+    warpage_wdm_p95 = NAN;
+    warpage_whs_p95 = NAN;
     //BBS: add label_object_enabled
     label_object_enabled = false;
     long_retraction_when_cut = false;
@@ -2371,6 +2378,7 @@ void GCodeProcessor::reset()
     m_hotend_cooling_rate = m_hotend_heating_rate = { 2.f };
 
     m_thermal_index    = ThermalIndex(0.0, 0.0, 0.0);
+    m_warpage_fields.reset();
     m_highest_bed_temp = 0;
 
     m_extruded_last_z = 0.0f;
@@ -2846,6 +2854,10 @@ void GCodeProcessor::process_helioadditive_comment(const GCodeReader::GCodeLine 
 {
     const std::string &comment = line.raw();
     m_thermal_index            = parse_helioadditive_comment(comment, m_is_helio_gcode);
+    // Parse warpage fields from the same comment line
+    if (m_is_helio_gcode) {
+        m_warpage_fields = parse_warpage_fields(comment);
+    }
 }
 
 #if __has_include(<charconv>)
@@ -3216,6 +3228,28 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
                 BOOST_LOG_TRIVIAL(error) << "GCodeProcessor encountered an invalid value for Width (" << comment << ").";
             return;
         }
+    }
+
+    // warpage header tags
+    {
+        auto parse_warpage_header = [&](const std::string_view& prefix, float& target) {
+            if (boost::starts_with(comment, prefix)) {
+                try {
+                    std::string val_str(comment.substr(prefix.size()));
+                    target = string_to_double_decimal_point(val_str);
+                } catch (...) {}
+                return true;
+            }
+            return false;
+        };
+        if (parse_warpage_header(" WARPAGE_SHRINKAGE_X_PCT=", m_result.warpage_shrinkage_x_pct) ||
+            parse_warpage_header(" WARPAGE_SHRINKAGE_Y_PCT=", m_result.warpage_shrinkage_y_pct) ||
+            parse_warpage_header(" WARPAGE_SHRINKAGE_Z_PCT=", m_result.warpage_shrinkage_z_pct) ||
+            parse_warpage_header(" WARPAGE_MAX_DISPLACEMENT_MM=", m_result.warpage_max_displacement_mm) ||
+            parse_warpage_header(" WARPAGE_MAX_HULL_SHRINKAGE_UM=", m_result.warpage_max_hull_shrinkage_um) ||
+            parse_warpage_header(" WARPAGE_WDM_P95=", m_result.warpage_wdm_p95) ||
+            parse_warpage_header(" WARPAGE_WHS_P95=", m_result.warpage_whs_p95))
+            return;
     }
 
     // color change tag
@@ -5796,6 +5830,16 @@ void GCodeProcessor::store_move_vertex(EMoveType type, EMovePathType path_type)
         m_thermal_index.min,
         m_thermal_index.max,
         m_thermal_index.mean,
+        // warpage fields
+        m_warpage_fields.displacement,
+        m_warpage_fields.disp_x,
+        m_warpage_fields.disp_y,
+        m_warpage_fields.disp_z,
+        m_warpage_fields.risk,
+        m_warpage_fields.ti_gradient,
+        m_warpage_fields.thermal_strain,
+        m_warpage_fields.hull_shrinkage,
+        m_warpage_fields.layer_shrinkage,
         {0.f,0.f}, // prefix sum of move time to this move : set later
         //BBS: add plate's offset to the rendering vertices
         Vec3f(m_end_position[X] + m_x_offset, m_end_position[Y] + m_y_offset, m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z]) + m_extruder_offsets[filament_id],

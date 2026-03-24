@@ -105,6 +105,13 @@ namespace Slic3r {
                 void bind_thermal_index_range_colors_texture(uint8_t stage);
                 void unbind_thermal_index_range_colors_texture();
 
+                void bind_warpage_sequential_colors_texture(uint8_t stage);
+                void unbind_warpage_sequential_colors_texture();
+                void bind_warpage_dark_colors_texture(uint8_t stage);
+                void unbind_warpage_dark_colors_texture();
+                void bind_warpage_diverging_colors_texture(uint8_t stage);
+                void unbind_warpage_diverging_colors_texture();
+
                 void bind_role_colors_texture(uint8_t stage);
                 void unbind_role_colors_texture();
 
@@ -124,6 +131,9 @@ namespace Slic3r {
 
                 std::shared_ptr<GLTexture> m_p_color_range_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_thermal_index_range_colors_texture{ nullptr };
+                std::shared_ptr<GLTexture> m_p_warpage_sequential_colors_texture{ nullptr };
+                std::shared_ptr<GLTexture> m_p_warpage_dark_colors_texture{ nullptr };
+                std::shared_ptr<GLTexture> m_p_warpage_diverging_colors_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_role_colors_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_option_colors_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_tool_colors_texture{ nullptr };

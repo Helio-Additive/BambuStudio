@@ -43,6 +43,26 @@ namespace
         else if (view_type == Slic3r::GUI::gcode::EViewType::ThermalIndexMean)
             return _u8L("Thermal Index (mean)");
         // end helio
+        // warpage
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDisplacement)
+            return _u8L("Displacement");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispX)
+            return _u8L("Displacement X");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispY)
+            return _u8L("Displacement Y");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispZ)
+            return _u8L("Displacement Z");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageRisk)
+            return _u8L("Warpage Risk");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageTIGradient)
+            return _u8L("TI Gradient");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageThermalStrain)
+            return _u8L("Thermal Strain");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage)
+            return _u8L("Hull Shrinkage");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage)
+            return _u8L("Layer Shrinkage");
+        // end warpage
         return "";
     }
 
@@ -179,6 +199,29 @@ namespace Slic3r
             //    {0.761f, 0.322f, 0.235f, 1.0f},
             //    {0.581f, 0.149f, 0.087f, 1.0f} // reddish
             //}};
+            // warpage colormaps
+            const std::vector<ColorRGBA> BaseRenderer::Warpage_Sequential_Colors{ {
+                { 30.0f/255, 180.0f/255, 60.0f/255, 1.0f },   // green (no issue)
+                { 140.0f/255, 190.0f/255, 40.0f/255, 1.0f },  // yellow-green
+                { 220.0f/255, 180.0f/255, 30.0f/255, 1.0f },  // amber
+                { 230.0f/255, 100.0f/255, 20.0f/255, 1.0f },  // orange
+                { 200.0f/255, 20.0f/255, 20.0f/255, 1.0f }    // red (worst)
+            } };
+
+            const std::vector<ColorRGBA> BaseRenderer::Warpage_Sequential_Dark_Colors{ {
+                { 25.0f/255, 30.0f/255, 50.0f/255, 1.0f },    // near-black (baseline noise)
+                { 30.0f/255, 160.0f/255, 60.0f/255, 1.0f },   // green (mild, within tolerance)
+                { 220.0f/255, 180.0f/255, 30.0f/255, 1.0f },  // amber (moderate)
+                { 200.0f/255, 20.0f/255, 20.0f/255, 1.0f }    // red (severe hull line)
+            } };
+
+            const std::vector<ColorRGBA> BaseRenderer::Warpage_Diverging_Colors{ {
+                { 0.0f/255, 60.0f/255, 200.0f/255, 1.0f },    // blue (negative)
+                { 30.0f/255, 180.0f/255, 60.0f/255, 1.0f },   // green (zero = good)
+                { 200.0f/255, 20.0f/255, 20.0f/255, 1.0f }    // red (positive)
+            } };
+            // end warpage colormaps
+
             const Color BaseRenderer::Wipe_Color = { 1.0f, 1.0f, 0.0f, 1.0f };
             const Color BaseRenderer::Neutral_Color = { 0.25f, 0.25f, 0.25f, 1.0f };
 
@@ -1089,7 +1132,20 @@ namespace Slic3r
                     m_view_type == EViewType::ThermalIndexMax ||
                     m_view_type == EViewType::ThermalIndexMean)
                     return true;
-                return false;
+                return is_warpage_option();
+            }
+
+            bool BaseRenderer::is_warpage_option() const
+            {
+                return m_view_type == EViewType::WarpageDisplacement ||
+                       m_view_type == EViewType::WarpageDispX ||
+                       m_view_type == EViewType::WarpageDispY ||
+                       m_view_type == EViewType::WarpageDispZ ||
+                       m_view_type == EViewType::WarpageRisk ||
+                       m_view_type == EViewType::WarpageTIGradient ||
+                       m_view_type == EViewType::WarpageThermalStrain ||
+                       m_view_type == EViewType::WarpageHullShrinkage ||
+                       m_view_type == EViewType::WarpageLayerShrinkage;
             }
 
             bool BaseRenderer::curr_plate_has_ok_helio_slice(int plate_idx) const
@@ -1212,6 +1268,19 @@ namespace Slic3r
                             if (curr.layer_duration > 0.f) {
                                 m_p_extrusions->ranges.layer_duration.update_from(curr.layer_duration);
                             }
+                            // warpage ranges
+                            if (!std::isnan(curr.warpage_displacement)) {
+                                m_p_extrusions->ranges.warpage_displacement.update_from(curr.warpage_displacement);
+                                m_p_extrusions->ranges.warpage_disp_x.update_from(curr.warpage_disp_x);
+                                m_p_extrusions->ranges.warpage_disp_y.update_from(curr.warpage_disp_y);
+                                m_p_extrusions->ranges.warpage_disp_z.update_from(curr.warpage_disp_z);
+                                m_p_extrusions->ranges.warpage_risk.update_from(curr.warpage_risk);
+                                m_p_extrusions->ranges.warpage_ti_gradient.update_from(curr.warpage_ti_gradient);
+                                m_p_extrusions->ranges.warpage_thermal_strain.update_from(curr.warpage_thermal_strain);
+                                m_p_extrusions->ranges.warpage_hull_shrinkage.update_from(curr.warpage_hull_shrinkage);
+                                m_p_extrusions->ranges.warpage_layer_shrinkage.update_from(curr.warpage_layer_shrinkage);
+                            }
+                            // end warpage
                             [[fallthrough]];
                         }
                         case EMoveType::Travel:
@@ -1632,6 +1701,27 @@ namespace Slic3r
                     m_show_horizontal_slider = false;
                     if ((int)Slic3r::HelioBackgroundProcess::State::STATE_FINISHED == m_last_helio_process_status || (m_gcode_result->update_imgui_flag && m_gcode_result->is_helio_gcode)) {
                         update_thermal_options(true);
+                        // Initialize warpage dynamic ranges from header p95 values
+                        if (m_gcode_result && !std::isnan(m_gcode_result->warpage_wdm_p95)) {
+                            float p95 = m_gcode_result->warpage_wdm_p95;
+                            m_p_extrusions->ranges.warpage_displacement.min = 0.0f;
+                            m_p_extrusions->ranges.warpage_displacement.max = p95;
+                            m_p_extrusions->ranges.warpage_displacement.is_fixed_range = true;
+                            m_p_extrusions->ranges.warpage_disp_x.min = -p95;
+                            m_p_extrusions->ranges.warpage_disp_x.max = p95;
+                            m_p_extrusions->ranges.warpage_disp_x.is_fixed_range = true;
+                            m_p_extrusions->ranges.warpage_disp_y.min = -p95;
+                            m_p_extrusions->ranges.warpage_disp_y.max = p95;
+                            m_p_extrusions->ranges.warpage_disp_y.is_fixed_range = true;
+                            m_p_extrusions->ranges.warpage_disp_z.min = -p95;
+                            m_p_extrusions->ranges.warpage_disp_z.max = p95;
+                            m_p_extrusions->ranges.warpage_disp_z.is_fixed_range = true;
+                        }
+                        if (m_gcode_result && !std::isnan(m_gcode_result->warpage_whs_p95)) {
+                            m_p_extrusions->ranges.warpage_hull_shrinkage.min = 0.0f;
+                            m_p_extrusions->ranges.warpage_hull_shrinkage.max = m_gcode_result->warpage_whs_p95;
+                            m_p_extrusions->ranges.warpage_hull_shrinkage.is_fixed_range = true;
+                        }
                         for (int i = 0; i < view_type_items.size(); i++) {
                             if (view_type_items[i] == EViewType::ThermalIndexMean) {
                                 m_view_type_sel = i;
@@ -1878,6 +1968,17 @@ namespace Slic3r
                 case EViewType::ThermalIndexMax: { imgui.title(_u8L("Thermal Index (max)")); break; }
                 case EViewType::ThermalIndexMean: { imgui.title(_u8L("Thermal Index (mean)")); break; }
                 // end helio
+                // warpage
+                case EViewType::WarpageDisplacement: { imgui.title(_u8L("Displacement")); break; }
+                case EViewType::WarpageDispX: { imgui.title(_u8L("Displacement X")); break; }
+                case EViewType::WarpageDispY: { imgui.title(_u8L("Displacement Y")); break; }
+                case EViewType::WarpageDispZ: { imgui.title(_u8L("Displacement Z")); break; }
+                case EViewType::WarpageRisk: { imgui.title(_u8L("Warpage Risk")); break; }
+                case EViewType::WarpageTIGradient: { imgui.title(_u8L("TI Gradient")); break; }
+                case EViewType::WarpageThermalStrain: { imgui.title(_u8L("Thermal Strain")); break; }
+                case EViewType::WarpageHullShrinkage: { imgui.title(_u8L("Hull Shrinkage")); break; }
+                case EViewType::WarpageLayerShrinkage: { imgui.title(_u8L("Layer Shrinkage")); break; }
+                // end warpage
                 default: { break; }
                 }
                 auto append_option_item = [this, append_item](EMoveType type, std::vector<float> offsets) {
@@ -2155,6 +2256,56 @@ namespace Slic3r
                     break;
                 }
                 // end helio
+                // warpage
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                {
+                    // Legend with appropriate decimals
+                    switch (m_view_type) {
+                    case EViewType::WarpageDisplacement:  append_range(m_p_extrusions->ranges.warpage_displacement, 3); break;
+                    case EViewType::WarpageDispX:         append_range(m_p_extrusions->ranges.warpage_disp_x, 3); break;
+                    case EViewType::WarpageDispY:         append_range(m_p_extrusions->ranges.warpage_disp_y, 3); break;
+                    case EViewType::WarpageDispZ:         append_range(m_p_extrusions->ranges.warpage_disp_z, 3); break;
+                    case EViewType::WarpageRisk:          append_range(m_p_extrusions->ranges.warpage_risk, 2); break;
+                    case EViewType::WarpageTIGradient:    append_range(m_p_extrusions->ranges.warpage_ti_gradient, 1); break;
+                    case EViewType::WarpageThermalStrain: append_range(m_p_extrusions->ranges.warpage_thermal_strain, 4); break;
+                    case EViewType::WarpageHullShrinkage: append_range(m_p_extrusions->ranges.warpage_hull_shrinkage, 4); break;
+                    case EViewType::WarpageLayerShrinkage:append_range(m_p_extrusions->ranges.warpage_layer_shrinkage, 5); break;
+                    default: break;
+                    }
+                    // Warpage summary stats
+                    if (m_gcode_result && !std::isnan(m_gcode_result->warpage_max_displacement_mm)) {
+                        char buf[64];
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        ::sprintf(buf, "%.3f mm", m_gcode_result->warpage_max_displacement_mm);
+                        ImGui::Dummy({ window_padding, window_padding });
+                        ImGui::SameLine();
+                        imgui.text(_u8L("Max disp") + ":  " + buf);
+                        if (!std::isnan(m_gcode_result->warpage_shrinkage_x_pct)) {
+                            ::sprintf(buf, "%.3f %%", m_gcode_result->warpage_shrinkage_x_pct);
+                            ImGui::Dummy({ window_padding, window_padding });
+                            ImGui::SameLine();
+                            imgui.text(_u8L("XY shrink") + ":  " + buf);
+                        }
+                        if (!std::isnan(m_gcode_result->warpage_max_hull_shrinkage_um)) {
+                            ::sprintf(buf, u8"%.1f \u00b5m", m_gcode_result->warpage_max_hull_shrinkage_um);
+                            ImGui::Dummy({ window_padding, window_padding });
+                            ImGui::SameLine();
+                            imgui.text(_u8L("Hull shrink") + ":  " + buf);
+                        }
+                    }
+                    break;
+                }
+                // end warpage
                 default: { break; }
                 }
                 // partial estimated printing time section
@@ -2990,6 +3141,17 @@ namespace Slic3r
                     _max = m_p_extrusions->ranges.layer_duration.max;
                     return true;
                 }
+                // warpage
+                case EViewType::WarpageDisplacement:  { _min = m_p_extrusions->ranges.warpage_displacement.min; _max = m_p_extrusions->ranges.warpage_displacement.max; return true; }
+                case EViewType::WarpageDispX:         { _min = m_p_extrusions->ranges.warpage_disp_x.min; _max = m_p_extrusions->ranges.warpage_disp_x.max; return true; }
+                case EViewType::WarpageDispY:         { _min = m_p_extrusions->ranges.warpage_disp_y.min; _max = m_p_extrusions->ranges.warpage_disp_y.max; return true; }
+                case EViewType::WarpageDispZ:         { _min = m_p_extrusions->ranges.warpage_disp_z.min; _max = m_p_extrusions->ranges.warpage_disp_z.max; return true; }
+                case EViewType::WarpageRisk:          { _min = m_p_extrusions->ranges.warpage_risk.min; _max = m_p_extrusions->ranges.warpage_risk.max; return true; }
+                case EViewType::WarpageTIGradient:    { _min = m_p_extrusions->ranges.warpage_ti_gradient.min; _max = m_p_extrusions->ranges.warpage_ti_gradient.max; return true; }
+                case EViewType::WarpageThermalStrain: { _min = m_p_extrusions->ranges.warpage_thermal_strain.min; _max = m_p_extrusions->ranges.warpage_thermal_strain.max; return true; }
+                case EViewType::WarpageHullShrinkage: { _min = m_p_extrusions->ranges.warpage_hull_shrinkage.min; _max = m_p_extrusions->ranges.warpage_hull_shrinkage.max; return true; }
+                case EViewType::WarpageLayerShrinkage:{ _min = m_p_extrusions->ranges.warpage_layer_shrinkage.min; _max = m_p_extrusions->ranges.warpage_layer_shrinkage.max; return true; }
+                // end warpage
                 case EViewType::Count:
                 default: break;
                 }
@@ -3081,6 +3243,17 @@ namespace Slic3r
                     view_type_items.push_back(EViewType::ThermalIndexMin);
                     view_type_items.push_back(EViewType::ThermalIndexMax);
                     view_type_items.push_back(EViewType::ThermalIndexMean);
+                    // warpage
+                    view_type_items.push_back(EViewType::WarpageDisplacement);
+                    view_type_items.push_back(EViewType::WarpageDispX);
+                    view_type_items.push_back(EViewType::WarpageDispY);
+                    view_type_items.push_back(EViewType::WarpageDispZ);
+                    view_type_items.push_back(EViewType::WarpageRisk);
+                    view_type_items.push_back(EViewType::WarpageTIGradient);
+                    view_type_items.push_back(EViewType::WarpageThermalStrain);
+                    view_type_items.push_back(EViewType::WarpageHullShrinkage);
+                    view_type_items.push_back(EViewType::WarpageLayerShrinkage);
+                    // end warpage
                     for (int i = index; i < view_type_items.size(); i++) {
                         ImageName temp = { get_view_type_string(view_type_items[i]), m_helio_icon_texture, m_helio_icon_dark_texture };
                         view_type_image_names.push_back(temp);
@@ -3088,8 +3261,14 @@ namespace Slic3r
                     view_type_items.push_back(EViewType::FilamentId);
                 }
                 else {
+                    auto is_helio_or_warpage = [](EViewType t) {
+                        return t == EViewType::ThermalIndexMean || t == EViewType::ThermalIndexMin || t == EViewType::ThermalIndexMax ||
+                               t == EViewType::WarpageDisplacement || t == EViewType::WarpageDispX || t == EViewType::WarpageDispY ||
+                               t == EViewType::WarpageDispZ || t == EViewType::WarpageRisk || t == EViewType::WarpageTIGradient ||
+                               t == EViewType::WarpageThermalStrain || t == EViewType::WarpageHullShrinkage || t == EViewType::WarpageLayerShrinkage;
+                    };
                     for (int i = view_type_items.size() - 1; i >= 0; i--) {
-                        if (view_type_items[i] == EViewType::ThermalIndexMean || view_type_items[i] == EViewType::ThermalIndexMin || view_type_items[i] == EViewType::ThermalIndexMax) {
+                        if (is_helio_or_warpage(view_type_items[i])) {
                             view_type_items.erase(view_type_items.begin() + i);
                             view_type_image_names.erase(view_type_image_names.begin() + i);
                         }
@@ -3640,6 +3819,37 @@ namespace Slic3r
                         break;
                     }
                     // end helio
+                    // warpage
+                    case EViewType::WarpageDisplacement:
+                    case EViewType::WarpageDispX:
+                    case EViewType::WarpageDispY:
+                    case EViewType::WarpageDispZ:
+                    case EViewType::WarpageRisk:
+                    case EViewType::WarpageTIGradient:
+                    case EViewType::WarpageThermalStrain:
+                    case EViewType::WarpageHullShrinkage:
+                    case EViewType::WarpageLayerShrinkage:
+                    {
+                        auto fmt_warpage = [&](const char* label, float val, const char* unit, float multiplier = 1.0f) {
+                            if (std::isnan(val))
+                                sprintf(buf, "%s: N/A", label);
+                            else
+                                sprintf(buf, "%s: %.4f %s", label, val * multiplier, unit);
+                            ImGui::PushItemWidth(item_size);
+                            imgui.text(buf);
+                        };
+                        fmt_warpage("Disp", m_curr_move.warpage_displacement, "mm");
+                        fmt_warpage("  X", m_curr_move.warpage_disp_x, "mm");
+                        fmt_warpage("  Y", m_curr_move.warpage_disp_y, "mm");
+                        fmt_warpage("  Z", m_curr_move.warpage_disp_z, "mm");
+                        fmt_warpage("Risk", m_curr_move.warpage_risk, "");
+                        fmt_warpage("TI Grad", m_curr_move.warpage_ti_gradient, "/mm");
+                        fmt_warpage("Strain", m_curr_move.warpage_thermal_strain, "");
+                        fmt_warpage("Hull", m_curr_move.warpage_hull_shrinkage, "\xC2\xB5m", 1000.0f);
+                        fmt_warpage("Layer", m_curr_move.warpage_layer_shrinkage, "%", 100.0f);
+                        break;
+                    }
+                    // end warpage
                     default:
                         break;
                     }
@@ -3690,6 +3900,8 @@ namespace Slic3r
 
             ColorRGBA Range::get_color_at(float value, EType type) const
             {
+                if (std::isnan(value))
+                    return ColorRGBA::GRAY();
                 float       global_t = 0.0f;
                 const float step = step_size(type);
                 float       _min = min;

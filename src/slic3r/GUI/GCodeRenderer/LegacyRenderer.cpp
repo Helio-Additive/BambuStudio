@@ -221,6 +221,17 @@ namespace Slic3r {
                      move.thermal_index_min,
                      move.thermal_index_max,
                      move.thermal_index_mean,
+                     // warpage
+                     move.warpage_displacement,
+                     move.warpage_disp_x,
+                     move.warpage_disp_y,
+                     move.warpage_disp_z,
+                     move.warpage_risk,
+                     move.warpage_ti_gradient,
+                     move.warpage_thermal_strain,
+                     move.warpage_hull_shrinkage,
+                     move.warpage_layer_shrinkage,
+                     // end warpage
                      move.volumetric_rate(),
                      move.layer_duration,
                      move.extruder_id,
@@ -1802,6 +1813,17 @@ namespace Slic3r {
                     case EViewType::ThermalIndexMax: { color = m_p_extrusions->ranges.thermal_index_max.get_color_at(path.thermal_index_max); break; }
                     case EViewType::ThermalIndexMean: { color = m_p_extrusions->ranges.thermal_index_mean.get_color_at(path.thermal_index_mean); break; }
                     // end helio
+                    // warpage
+                    case EViewType::WarpageDisplacement:  { color = m_p_extrusions->ranges.warpage_displacement.get_color_at(path.warpage_displacement); break; }
+                    case EViewType::WarpageDispX:         { color = m_p_extrusions->ranges.warpage_disp_x.get_color_at(path.warpage_disp_x); break; }
+                    case EViewType::WarpageDispY:         { color = m_p_extrusions->ranges.warpage_disp_y.get_color_at(path.warpage_disp_y); break; }
+                    case EViewType::WarpageDispZ:         { color = m_p_extrusions->ranges.warpage_disp_z.get_color_at(path.warpage_disp_z); break; }
+                    case EViewType::WarpageRisk:          { color = m_p_extrusions->ranges.warpage_risk.get_color_at(path.warpage_risk); break; }
+                    case EViewType::WarpageTIGradient:    { color = m_p_extrusions->ranges.warpage_ti_gradient.get_color_at(path.warpage_ti_gradient); break; }
+                    case EViewType::WarpageThermalStrain: { color = m_p_extrusions->ranges.warpage_thermal_strain.get_color_at(path.warpage_thermal_strain); break; }
+                    case EViewType::WarpageHullShrinkage: { color = m_p_extrusions->ranges.warpage_hull_shrinkage.get_color_at(path.warpage_hull_shrinkage); break; }
+                    case EViewType::WarpageLayerShrinkage:{ color = m_p_extrusions->ranges.warpage_layer_shrinkage.get_color_at(path.warpage_layer_shrinkage); break; }
+                    // end warpage
                     default: { color = { 1.0f, 1.0f, 1.0f, 1.0f }; break; }
                     }
                     return color;

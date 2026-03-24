@@ -10,6 +10,7 @@
 #include "libslic3r/MultiNozzleUtils.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <array>
 #include <vector>
 #include <regex>
@@ -214,6 +215,16 @@ namespace Slic3r {
             float thermal_index_min{0.0f};
             float thermal_index_max{0.0f};
             float thermal_index_mean{0.0f};
+            // warpage fields
+            float warpage_displacement{NAN};      // wdm
+            float warpage_disp_x{NAN};            // wdx
+            float warpage_disp_y{NAN};            // wdy
+            float warpage_disp_z{NAN};            // wdz
+            float warpage_risk{NAN};              // wr
+            float warpage_ti_gradient{NAN};       // wtg
+            float warpage_thermal_strain{NAN};    // wts
+            float warpage_hull_shrinkage{NAN};    // whs
+            float warpage_layer_shrinkage{NAN};   // wls
 
             std::array<float, 2>time{ 0.f,0.f }; // prefix sum of time, assigned during finalize()
 
@@ -268,6 +279,14 @@ namespace Slic3r {
         bool support_traditional_timelapse{true};
         bool update_imgui_flag{false};
         bool is_helio_gcode{false};
+        // warpage header fields
+        float warpage_shrinkage_x_pct{NAN};
+        float warpage_shrinkage_y_pct{NAN};
+        float warpage_shrinkage_z_pct{NAN};
+        float warpage_max_displacement_mm{NAN};
+        float warpage_max_hull_shrinkage_um{NAN};
+        float warpage_wdm_p95{NAN};
+        float warpage_whs_p95{NAN};
         float printable_height;
         SettingsIds settings_ids;
         size_t filaments_count;
@@ -316,6 +335,13 @@ namespace Slic3r {
             label_object_enabled = other.label_object_enabled;
             update_imgui_flag         = other.update_imgui_flag;
             is_helio_gcode            = other.is_helio_gcode;
+            warpage_shrinkage_x_pct       = other.warpage_shrinkage_x_pct;
+            warpage_shrinkage_y_pct       = other.warpage_shrinkage_y_pct;
+            warpage_shrinkage_z_pct       = other.warpage_shrinkage_z_pct;
+            warpage_max_displacement_mm   = other.warpage_max_displacement_mm;
+            warpage_max_hull_shrinkage_um = other.warpage_max_hull_shrinkage_um;
+            warpage_wdm_p95               = other.warpage_wdm_p95;
+            warpage_whs_p95               = other.warpage_whs_p95;
             long_retraction_when_cut = other.long_retraction_when_cut;
             timelapse_warning_code = other.timelapse_warning_code;
             printable_height = other.printable_height;
@@ -498,6 +524,24 @@ namespace Slic3r {
             ThermalIndex() : min(-200), max(-200), mean(-200), isNull(true) {}
 
             ThermalIndex(float minVal, float maxVal, float meanVal) : min(minVal), max(maxVal), mean(meanVal), isNull(false) {}
+        };
+
+        struct WarpageFields
+        {
+            float displacement{NAN};      // wdm
+            float disp_x{NAN};            // wdx
+            float disp_y{NAN};            // wdy
+            float disp_z{NAN};            // wdz
+            float risk{NAN};              // wr
+            float ti_gradient{NAN};       // wtg
+            float thermal_strain{NAN};    // wts
+            float hull_shrinkage{NAN};    // whs
+            float layer_shrinkage{NAN};   // wls
+
+            void reset() {
+                displacement = disp_x = disp_y = disp_z = NAN;
+                risk = ti_gradient = thermal_strain = hull_shrinkage = layer_shrinkage = NAN;
+            }
         };
         bool is_helio_gcode() { return m_is_helio_gcode; }
     private:
@@ -1119,6 +1163,7 @@ namespace Slic3r {
         ExtruderColors m_extruder_colors;
         ExtruderTemps m_extruder_temps;
         ThermalIndex m_thermal_index;
+        WarpageFields m_warpage_fields;
         bool m_is_helio_gcode{false};
         int m_highest_bed_temp;
         float m_extruded_last_z;
@@ -1224,7 +1269,7 @@ namespace Slic3r {
             m_detect_layer_based_on_tag = enabled;
         }
 
-        static ThermalIndex parse_helioadditive_comment(const std::string comment,bool& is_helio)
+        static ThermalIndex parse_helioadditive_comment(const std::string comment, bool& is_helio)
         {
             if (boost::algorithm::contains(comment, ";helioadditive=")) {
                 std::regex  regexPattern(R"(\bti\.max=(-?[0-9]*\.?[0-9]+),ti\.min=(-?[0-9]*\.?[0-9]+),ti\.mean=(-?[0-9]*\.?[0-9]+)\b)");
@@ -1243,6 +1288,35 @@ namespace Slic3r {
             } else {
                 return ThermalIndex();
             }
+        };
+
+        static WarpageFields parse_warpage_fields(const std::string& comment)
+        {
+            WarpageFields fields;
+            // Parse key=value pairs from the comment (comma-separated)
+            // Expected format: ...,wdm=0.4231,wdx=-0.0012,wdy=0.3891,...
+            auto parse_field = [&](const std::string& key, float& target) {
+                std::string search = key + "=";
+                size_t pos = comment.find(search);
+                if (pos != std::string::npos) {
+                    pos += search.size();
+                    size_t end = comment.find(',', pos);
+                    if (end == std::string::npos) end = comment.size();
+                    try {
+                        target = std::stof(comment.substr(pos, end - pos));
+                    } catch (...) {}
+                }
+            };
+            parse_field("wdm", fields.displacement);
+            parse_field("wdx", fields.disp_x);
+            parse_field("wdy", fields.disp_y);
+            parse_field("wdz", fields.disp_z);
+            parse_field("wr",  fields.risk);
+            parse_field("wtg", fields.ti_gradient);
+            parse_field("wts", fields.thermal_strain);
+            parse_field("whs", fields.hull_shrinkage);
+            parse_field("wls", fields.layer_shrinkage);
+            return fields;
         };
 
     private:

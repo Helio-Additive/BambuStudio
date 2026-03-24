@@ -135,6 +135,17 @@ namespace
             return t_move.thermal_index_mean;
         }
         // end helio
+        // warpage
+        case Slic3r::GUI::gcode::EViewType::WarpageDisplacement:  { return t_move.warpage_displacement; }
+        case Slic3r::GUI::gcode::EViewType::WarpageDispX:         { return t_move.warpage_disp_x; }
+        case Slic3r::GUI::gcode::EViewType::WarpageDispY:         { return t_move.warpage_disp_y; }
+        case Slic3r::GUI::gcode::EViewType::WarpageDispZ:         { return t_move.warpage_disp_z; }
+        case Slic3r::GUI::gcode::EViewType::WarpageRisk:          { return t_move.warpage_risk; }
+        case Slic3r::GUI::gcode::EViewType::WarpageTIGradient:    { return t_move.warpage_ti_gradient; }
+        case Slic3r::GUI::gcode::EViewType::WarpageThermalStrain: { return t_move.warpage_thermal_strain; }
+        case Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage: { return t_move.warpage_hull_shrinkage; }
+        case Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage:{ return t_move.warpage_layer_shrinkage; }
+        // end warpage
         default:
             return 0.0f;
         }
@@ -1231,6 +1242,37 @@ namespace Slic3r
                     break;
                 }
                 // end helio
+                // warpage - sequential colormap
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageLayerShrinkage:
+                {
+                    const uint8_t color_range_stage = texture_stage;
+                    bind_warpage_sequential_colors_texture(color_range_stage);
+                    p_shader->set_uniform("s_color_range_texture", color_range_stage);
+                    break;
+                }
+                // warpage - dark sequential colormap
+                case EViewType::WarpageHullShrinkage:
+                {
+                    const uint8_t color_range_stage = texture_stage;
+                    bind_warpage_dark_colors_texture(color_range_stage);
+                    p_shader->set_uniform("s_color_range_texture", color_range_stage);
+                    break;
+                }
+                // warpage - diverging colormap
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageTIGradient:
+                {
+                    const uint8_t color_range_stage = texture_stage;
+                    bind_warpage_diverging_colors_texture(color_range_stage);
+                    p_shader->set_uniform("s_color_range_texture", color_range_stage);
+                    break;
+                }
+                // end warpage
                 }
 
                 for (size_t i = 0; i < layer_index_list.size(); ++i) {
@@ -1499,6 +1541,17 @@ namespace Slic3r
                     return m_p_extrusions->ranges.thermal_index_mean;
                 }
                 // end helio
+                // warpage
+                case Slic3r::GUI::gcode::EViewType::WarpageDisplacement:  { return m_p_extrusions->ranges.warpage_displacement; }
+                case Slic3r::GUI::gcode::EViewType::WarpageDispX:         { return m_p_extrusions->ranges.warpage_disp_x; }
+                case Slic3r::GUI::gcode::EViewType::WarpageDispY:         { return m_p_extrusions->ranges.warpage_disp_y; }
+                case Slic3r::GUI::gcode::EViewType::WarpageDispZ:         { return m_p_extrusions->ranges.warpage_disp_z; }
+                case Slic3r::GUI::gcode::EViewType::WarpageRisk:          { return m_p_extrusions->ranges.warpage_risk; }
+                case Slic3r::GUI::gcode::EViewType::WarpageTIGradient:    { return m_p_extrusions->ranges.warpage_ti_gradient; }
+                case Slic3r::GUI::gcode::EViewType::WarpageThermalStrain: { return m_p_extrusions->ranges.warpage_thermal_strain; }
+                case Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage: { return m_p_extrusions->ranges.warpage_hull_shrinkage; }
+                case Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage:{ return m_p_extrusions->ranges.warpage_layer_shrinkage; }
+                // end warpage
                 default:
                 {
                     t_range.min = 0;
@@ -1598,6 +1651,53 @@ namespace Slic3r
                     m_p_thermal_index_range_colors_texture->unbind();
                 }
             }
+
+            // Helper to create and bind a colormap texture from a color array
+            static void bind_colormap_texture(std::shared_ptr<GLTexture>& texture, const std::vector<ColorRGBA>& colors, uint8_t stage)
+            {
+                const auto color_count = colors.size();
+                const uint32_t width = color_count;
+                const uint32_t height = 1;
+                if (!texture) {
+                    texture = std::make_shared<GLTexture>();
+                    texture->set_width(width)
+                        .set_height(height)
+                        .set_internal_format(Slic3r::GUI::ETextureFormat::RGBA8)
+                        .set_sampler(Slic3r::GUI::ESamplerType::Sampler2D)
+                        .set_pixel_data_format(Slic3r::GUI::EPixelFormat::RGBA)
+                        .set_pixel_data_type(Slic3r::GUI::EPixelDataType::Float)
+                        .set_mag_filter(ESamplerFilterMode::Linear)
+                        .set_min_filter(ESamplerFilterMode::Linear)
+                        .build();
+
+                    std::vector<float> temp_data(width * height * 4, 0.0f);
+                    for (size_t i = 0; i < color_count; ++i) {
+                        const auto& tRGBA = colors[i].get_data();
+                        for (int j = 0; j < (int)tRGBA.size(); ++j)
+                            temp_data[i * 4 + j] = tRGBA[j];
+                    }
+                    std::vector<uint8_t> pixel_data(temp_data.size() * sizeof(float));
+                    memcpy(pixel_data.data(), temp_data.data(), temp_data.size() * sizeof(float));
+                    auto pbd = std::make_shared<Slic3r::GUI::PixelBufferDescriptor>(std::move(pixel_data), Slic3r::GUI::EPixelFormat::RGBA, Slic3r::GUI::EPixelDataType::Float);
+                    texture->set_image(0, 0, 0, 0, width, height, 1, pbd);
+                }
+                if (texture) texture->bind(stage);
+            }
+
+            void AdvancedRenderer::bind_warpage_sequential_colors_texture(uint8_t stage)
+            { bind_colormap_texture(m_p_warpage_sequential_colors_texture, Warpage_Sequential_Colors, stage); }
+            void AdvancedRenderer::unbind_warpage_sequential_colors_texture()
+            { if (m_p_warpage_sequential_colors_texture) m_p_warpage_sequential_colors_texture->unbind(); }
+
+            void AdvancedRenderer::bind_warpage_dark_colors_texture(uint8_t stage)
+            { bind_colormap_texture(m_p_warpage_dark_colors_texture, Warpage_Sequential_Dark_Colors, stage); }
+            void AdvancedRenderer::unbind_warpage_dark_colors_texture()
+            { if (m_p_warpage_dark_colors_texture) m_p_warpage_dark_colors_texture->unbind(); }
+
+            void AdvancedRenderer::bind_warpage_diverging_colors_texture(uint8_t stage)
+            { bind_colormap_texture(m_p_warpage_diverging_colors_texture, Warpage_Diverging_Colors, stage); }
+            void AdvancedRenderer::unbind_warpage_diverging_colors_texture()
+            { if (m_p_warpage_diverging_colors_texture) m_p_warpage_diverging_colors_texture->unbind(); }
 
             void AdvancedRenderer::bind_role_colors_texture(uint8_t stage)
             {

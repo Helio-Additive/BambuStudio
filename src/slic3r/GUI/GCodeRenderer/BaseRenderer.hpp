@@ -44,6 +44,17 @@ namespace Slic3r {
                 ThermalIndexMax,
                 ThermalIndexMean,
                 // end helio
+                // warpage
+                WarpageDisplacement,
+                WarpageDispX,
+                WarpageDispY,
+                WarpageDispZ,
+                WarpageRisk,
+                WarpageTIGradient,
+                WarpageThermalStrain,
+                WarpageHullShrinkage,
+                WarpageLayerShrinkage,
+                // end warpage
                 Count
             };
 
@@ -137,6 +148,7 @@ namespace Slic3r {
                 void set_show_horizontal_slider(bool flag);
                 bool is_show_horizontal_slider() const;
                 bool is_helio_option() const;
+                bool is_warpage_option() const;
                 bool curr_plate_has_ok_helio_slice(int plate_idx) const;
                 void reset_curr_plate_thermal_options();
                 void record_gcodeviewer_option_item();
@@ -172,6 +184,11 @@ namespace Slic3r {
                 static const std::vector<ColorRGBA> Default_Range_Colors;
                 static const std::vector<ColorRGBA> Thermal_Index_Range_Colors;
                 // end helio
+                // warpage colormaps
+                static const std::vector<ColorRGBA> Warpage_Sequential_Colors;
+                static const std::vector<ColorRGBA> Warpage_Sequential_Dark_Colors;
+                static const std::vector<ColorRGBA> Warpage_Diverging_Colors;
+                // end warpage
                 static const Color              Wipe_Color;
                 static const Color              Neutral_Color;
 
@@ -439,6 +456,17 @@ namespace Slic3r {
                 // Color mapping by thermal index mean
                 Range thermal_index_mean{ -100.0f, 100.0f, BaseRenderer::Thermal_Index_Range_Colors };
                 // end helio
+                // warpage ranges
+                Range warpage_displacement{ BaseRenderer::Warpage_Sequential_Colors };
+                Range warpage_disp_x{ BaseRenderer::Warpage_Diverging_Colors };
+                Range warpage_disp_y{ BaseRenderer::Warpage_Diverging_Colors };
+                Range warpage_disp_z{ BaseRenderer::Warpage_Diverging_Colors };
+                Range warpage_risk{ 0.0f, 1.0f, BaseRenderer::Warpage_Sequential_Colors };
+                Range warpage_ti_gradient{ BaseRenderer::Warpage_Diverging_Colors };
+                Range warpage_thermal_strain{ BaseRenderer::Warpage_Sequential_Colors };
+                Range warpage_hull_shrinkage{ BaseRenderer::Warpage_Sequential_Dark_Colors };
+                Range warpage_layer_shrinkage{ BaseRenderer::Warpage_Sequential_Colors };
+                // end warpage
 
                 void reset() {
                     height.reset();
@@ -453,6 +481,17 @@ namespace Slic3r {
                     thermal_index_max.reset();
                     thermal_index_mean.reset();
                     // end helio
+                    // warpage
+                    warpage_displacement.reset();
+                    warpage_disp_x.reset();
+                    warpage_disp_y.reset();
+                    warpage_disp_z.reset();
+                    warpage_risk.reset();
+                    warpage_ti_gradient.reset();
+                    warpage_thermal_strain.reset();
+                    warpage_hull_shrinkage.reset();
+                    warpage_layer_shrinkage.reset();
+                    // end warpage
                 }
             };
 

@@ -169,6 +169,17 @@ namespace Slic3r {
                     float thermal_index_max{ 0.0f };
                     float thermal_index_mean{ 0.0f };
                     // end helio
+                    // warpage
+                    float warpage_displacement{ NAN };
+                    float warpage_disp_x{ NAN };
+                    float warpage_disp_y{ NAN };
+                    float warpage_disp_z{ NAN };
+                    float warpage_risk{ NAN };
+                    float warpage_ti_gradient{ NAN };
+                    float warpage_thermal_strain{ NAN };
+                    float warpage_hull_shrinkage{ NAN };
+                    float warpage_layer_shrinkage{ NAN };
+                    // end warpage
                     float volumetric_rate{ 0.0f };
                     float layer_time{ 0.0f };
                     unsigned char extruder_id{ 0 };
