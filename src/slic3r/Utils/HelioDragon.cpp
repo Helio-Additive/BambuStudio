@@ -22,6 +22,8 @@
 #include "wx/app.h"
 #include "cstdio"
 #include <thread>
+#include <chrono>
+#include <memory>
 
 namespace Slic3r {
 
@@ -133,6 +135,7 @@ void HelioQuery::request_remaining_optimizations(const std::string & helio_api_u
 
     http.timeout_connect(20)
         .timeout_max(100)
+        .retries(2)
         .on_complete([url_copy, key_copy, func](std::string body, unsigned status) {
         try {
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
@@ -420,6 +423,7 @@ void HelioQuery::request_print_priority_options(
     auto response_headers = std::make_shared<std::string>();
     http.timeout_connect(10)
         .timeout_max(30)
+        .retries(2)
         .on_header_callback([response_headers](std::string headers) {
             *response_headers += headers;
         })
@@ -545,40 +549,44 @@ void HelioQuery::request_pat_token(std::function<void(std::string)> func)
         url_copy = "https://api.helioadditive.com/rest/auth/anonymous_token/bambustudio";
     }
 
+    // Retry transient transport failures (TLS handshake wobble on Windows/Schannel,
+    // DNS hiccups, timeouts, 5xx) via the centralized Http retry loop. HTTP 429
+    // "not enough quota" is not retryable — it's classified as a 4xx by the retry
+    // logic and propagated to on_error, where we translate it to "not_enough".
     auto http = Http::get(url_copy);
     http.timeout_connect(20)
         .timeout_max(100)
-        .on_complete([url_copy, func](std::string body, unsigned status) {
-            //success
+        .retries(3)
+        .on_complete([func](std::string body, unsigned status) {
             if (status == 200) {
-                nlohmann::json parsed_obj = nlohmann::json::parse(body);
                 try {
+                    nlohmann::json parsed_obj = nlohmann::json::parse(body);
                     if (parsed_obj.contains("pat") && parsed_obj["pat"].is_string()) {
                         func(parsed_obj["pat"].get<std::string>());
-                    }
-                    else {
+                    } else {
                         func("error");
                     }
-
-                }
-                catch (const std::exception& e) {
-                    BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token: " << e.what();
+                } catch (const std::exception &e) {
+                    BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token parse: " << e.what();
+                    func("error");
                 } catch (...) {
-                    BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token: unknown error";
+                    BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token parse: unknown error";
+                    func("error");
                 }
-            }
-            else if (status == 429) {
+            } else if (status == 429) {
                 func("not_enough");
+            } else {
+                func("error");
             }
         })
         .on_error([func](std::string body, std::string error, unsigned status) {
+            BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token error: "
+                                     << error << ", status: " << status;
             if (status == 429) {
                 func("not_enough");
-            }
-            else {
+            } else {
                 func("error");
             }
-            BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token error: " << error << ", status: " << status;
         })
         .perform();
 }
@@ -611,6 +619,10 @@ void HelioQuery::optimization_feedback(const std::string helio_api_url, const st
 
     http.timeout_connect(20)
         .timeout_max(100)
+        // One retry only — feedback is a POST and the server has no idempotency key,
+        // so a retry on a 5xx could create a duplicate feedback record. Transport
+        // errors (the Windows failure mode) are safe because nothing reached the server.
+        .retries(1)
         .on_complete([=](std::string body, unsigned status) {
             BOOST_LOG_TRIVIAL(info) << "optimization_feedback response: " << body << ", status: " << status;
         })
@@ -647,6 +659,9 @@ HelioQuery::PresignedURLResult HelioQuery::create_presigned_url(const std::strin
 
     http.timeout_connect(20)
         .timeout_max(100)
+        // create_presigned_url returns an S3 upload URL. Duplicate URLs from a retry
+        // are harmless — the unused one just expires — so two retries for resilience.
+        .retries(2)
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -703,6 +718,10 @@ HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std:
     }
 
     http.set_put_body(file_path)
+        // S3 PUT against a presigned URL is idempotent: the second PUT just overwrites
+        // the first. Two retries gives us resilience for the upload step without
+        // creating duplicate server-side state.
+        .retries(2)
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -747,6 +766,11 @@ HelioQuery::PollResult HelioQuery::poll_gcode_status(const std::string& helio_ap
         .set_post_body(poll_body)
         .timeout_connect(10)
         .timeout_max(30)
+        // Two quiet retries here so a single transient network blip (e.g. a Schannel
+        // revocation-check hiccup or a dropped idle connection on Windows) doesn't
+        // surface as a poll failure to the outer polling loop, which would otherwise
+        // count it toward the consecutive-failure short-circuit budget.
+        .retries(2, 500)
         .on_complete([&result](std::string poll_body, unsigned poll_status) {
             try {
                 json poll_obj = json::parse(poll_body);
@@ -941,53 +965,87 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                 }
             }
 
-            int poll_count = 0;
-            while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED" && poll_count < 60) {
+            // Poll until terminal state, bounded by wall-clock time. The previous
+            // implementation used a fixed 60-attempt counter: when transient network
+            // errors caused polls to fail fast, the window could be exhausted in seconds
+            // and the user would see "error" even though the server was still computing.
+            //
+            // - kMaxTotalSeconds: overall budget for an optimization result.
+            // - kMaxConsecutiveTransientFailures: short-circuits the wait if we clearly
+            //   lost the network altogether, so the user doesn't stare at a spinner for
+            //   the full budget when nothing is going to change.
+            // - Consecutive-failure counter resets on any successful poll.
+            constexpr int kMaxTotalSeconds = 300;
+            constexpr int kMaxConsecutiveTransientFailures = 10;
+            const auto poll_start = std::chrono::steady_clock::now();
+            int consecutive_failures = 0;
+
+            while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED") {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
+
+                const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                                         std::chrono::steady_clock::now() - poll_start)
+                                         .count();
+                if (elapsed >= kMaxTotalSeconds) {
+                    BOOST_LOG_TRIVIAL(error) << "Helio create_gcode_v2: polling timed out after "
+                                             << elapsed << "s in state " << res.status_str;
+                    res.success = false;
+                    res.error = _u8L("Timed out waiting for optimization result. Please try again.");
+                    return;
+                }
 
                 PollResult poll_res = poll_gcode_status(helio_api_url, helio_api_key, res.id);
 
-                if (poll_res.success) {
-                    res.status_str = poll_res.status_str;
-                    res.progress = poll_res.progress;
-                    res.sizeKb = poll_res.sizeKb;
-
-                    if (!poll_res.errors.empty()) {
-                        std::string error_message;
-                        for (size_t i = 0; i < poll_res.errors.size(); ++i) {
-                            if (poll_res.errors.size() > 1) {
-                                error_message += std::to_string(i + 1) + ". " + poll_res.errors[i];
-                                if (i != poll_res.errors.size() - 1) error_message += "\n";
-                            } else {
-                                error_message = poll_res.errors[i];
-                            }
-                        }
+                if (!poll_res.success) {
+                    consecutive_failures++;
+                    BOOST_LOG_TRIVIAL(warning) << "Helio create_gcode_v2: transient poll failure "
+                                               << consecutive_failures << "/" << kMaxConsecutiveTransientFailures;
+                    if (consecutive_failures >= kMaxConsecutiveTransientFailures) {
                         res.success = false;
-                        res.error = error_message;
+                        res.error = _u8L("Lost connection while waiting for optimization result. Please check your network and try again.");
                         return;
                     }
-
-                    if (res.status_str == "ERROR" || res.status_str == "RESTRICTED") {
-                        res.success = false;
-                        if (res.status_str == "RESTRICTED" && !poll_res.restrictions.empty()) {
-                            std::string restriction_message;
-                            for (size_t i = 0; i < poll_res.restrictions.size(); ++i) {
-                                if (poll_res.restrictions.size() > 1) {
-                                    restriction_message += std::to_string(i + 1) + ". " + poll_res.restrictions[i];
-                                    if (i != poll_res.restrictions.size() - 1) restriction_message += "\n";
-                                } else {
-                                    restriction_message = poll_res.restrictions[i];
-                                }
-                            }
-                            res.error = restriction_message;
-                        } else {
-                            res.error = (boost::format("GCode creation failed with status: %1%") % res.status_str).str();
-                        }
-                        return;
-                    }
+                    continue;
                 }
 
-                poll_count++;
+                consecutive_failures = 0;
+                res.status_str = poll_res.status_str;
+                res.progress = poll_res.progress;
+                res.sizeKb = poll_res.sizeKb;
+
+                if (!poll_res.errors.empty()) {
+                    std::string error_message;
+                    for (size_t i = 0; i < poll_res.errors.size(); ++i) {
+                        if (poll_res.errors.size() > 1) {
+                            error_message += std::to_string(i + 1) + ". " + poll_res.errors[i];
+                            if (i != poll_res.errors.size() - 1) error_message += "\n";
+                        } else {
+                            error_message = poll_res.errors[i];
+                        }
+                    }
+                    res.success = false;
+                    res.error = error_message;
+                    return;
+                }
+
+                if (res.status_str == "ERROR" || res.status_str == "RESTRICTED") {
+                    res.success = false;
+                    if (res.status_str == "RESTRICTED" && !poll_res.restrictions.empty()) {
+                        std::string restriction_message;
+                        for (size_t i = 0; i < poll_res.restrictions.size(); ++i) {
+                            if (poll_res.restrictions.size() > 1) {
+                                restriction_message += std::to_string(i + 1) + ". " + poll_res.restrictions[i];
+                                if (i != poll_res.restrictions.size() - 1) restriction_message += "\n";
+                            } else {
+                                restriction_message = poll_res.restrictions[i];
+                            }
+                        }
+                        res.error = restriction_message;
+                    } else {
+                        res.error = (boost::format("GCode creation failed with status: %1%") % res.status_str).str();
+                    }
+                    return;
+                }
             }
         }
         catch (...) {
@@ -1119,58 +1177,86 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
                 }
             }
 
-            int poll_count = 0;
-            while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED" && poll_count < 60) {
+            // See create_gcode_v2 for the rationale — wall-clock budget with
+            // consecutive-failure short-circuit. Duplicated inline rather than extracted
+            // because the surrounding callback closes over res/helio_api_url/helio_api_key
+            // by reference, and these two helpers share no other structure.
+            constexpr int kMaxTotalSeconds = 300;
+            constexpr int kMaxConsecutiveTransientFailures = 10;
+            const auto poll_start = std::chrono::steady_clock::now();
+            int consecutive_failures = 0;
+
+            while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED") {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
+
+                const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                                         std::chrono::steady_clock::now() - poll_start)
+                                         .count();
+                if (elapsed >= kMaxTotalSeconds) {
+                    BOOST_LOG_TRIVIAL(error) << "Helio create_gcode_v3: polling timed out after "
+                                             << elapsed << "s in state " << res.status_str;
+                    res.success = false;
+                    res.error = _u8L("Timed out waiting for optimization result. Please try again.");
+                    return;
+                }
 
                 PollResult poll_res = poll_gcode_status(helio_api_url, helio_api_key, res.id);
 
-                if (poll_res.success) {
-                    res.status_str = poll_res.status_str;
-                    res.progress = poll_res.progress;
-                    res.sizeKb = poll_res.sizeKb;
-                    
-                    // Check for errors during polling
-                    if (!poll_res.errors.empty()) {
-                        std::string error_message;
-                        for (size_t i = 0; i < poll_res.errors.size(); ++i) {
-                            if (poll_res.errors.size() > 1) {
-                                error_message += std::to_string(i + 1) + ". " + poll_res.errors[i];
-                                if (i != poll_res.errors.size() - 1) {
-                                    error_message += "\n";
-                                }
-                            } else {
-                                error_message = poll_res.errors[i];
-                            }
-                        }
+                if (!poll_res.success) {
+                    consecutive_failures++;
+                    BOOST_LOG_TRIVIAL(warning) << "Helio create_gcode_v3: transient poll failure "
+                                               << consecutive_failures << "/" << kMaxConsecutiveTransientFailures;
+                    if (consecutive_failures >= kMaxConsecutiveTransientFailures) {
                         res.success = false;
-                        res.error = error_message;
+                        res.error = _u8L("Lost connection while waiting for optimization result. Please check your network and try again.");
                         return;
                     }
-                    
-                    // Handle ERROR/RESTRICTED status even if errors array is empty
-                    if (res.status_str == "ERROR" || res.status_str == "RESTRICTED") {
-                        res.success = false;
-                        // For RESTRICTED, use restriction details if available
-                        if (res.status_str == "RESTRICTED" && !poll_res.restrictions.empty()) {
-                            std::string restriction_message;
-                            for (size_t i = 0; i < poll_res.restrictions.size(); ++i) {
-                                if (poll_res.restrictions.size() > 1) {
-                                    restriction_message += std::to_string(i + 1) + ". " + poll_res.restrictions[i];
-                                    if (i != poll_res.restrictions.size() - 1) restriction_message += "\n";
-                                } else {
-                                    restriction_message = poll_res.restrictions[i];
-                                }
-                            }
-                            res.error = restriction_message;
-                        } else {
-                            res.error = (boost::format("GCode creation failed with status: %1%") % res.status_str).str();
-                        }
-                        return;
-                    }
+                    continue;
                 }
 
-                poll_count++;
+                consecutive_failures = 0;
+                res.status_str = poll_res.status_str;
+                res.progress = poll_res.progress;
+                res.sizeKb = poll_res.sizeKb;
+
+                // Check for errors during polling
+                if (!poll_res.errors.empty()) {
+                    std::string error_message;
+                    for (size_t i = 0; i < poll_res.errors.size(); ++i) {
+                        if (poll_res.errors.size() > 1) {
+                            error_message += std::to_string(i + 1) + ". " + poll_res.errors[i];
+                            if (i != poll_res.errors.size() - 1) {
+                                error_message += "\n";
+                            }
+                        } else {
+                            error_message = poll_res.errors[i];
+                        }
+                    }
+                    res.success = false;
+                    res.error = error_message;
+                    return;
+                }
+
+                // Handle ERROR/RESTRICTED status even if errors array is empty
+                if (res.status_str == "ERROR" || res.status_str == "RESTRICTED") {
+                    res.success = false;
+                    // For RESTRICTED, use restriction details if available
+                    if (res.status_str == "RESTRICTED" && !poll_res.restrictions.empty()) {
+                        std::string restriction_message;
+                        for (size_t i = 0; i < poll_res.restrictions.size(); ++i) {
+                            if (poll_res.restrictions.size() > 1) {
+                                restriction_message += std::to_string(i + 1) + ". " + poll_res.restrictions[i];
+                                if (i != poll_res.restrictions.size() - 1) restriction_message += "\n";
+                            } else {
+                                restriction_message = poll_res.restrictions[i];
+                            }
+                        }
+                        res.error = restriction_message;
+                    } else {
+                        res.error = (boost::format("GCode creation failed with status: %1%") % res.status_str).str();
+                    }
+                    return;
+                }
             }
         }
         catch (...) {
@@ -1352,6 +1438,7 @@ std::string HelioQuery::create_optimization_default_get(const std::string helio_
     std::string response_headers;
     http.timeout_connect(20)
         .timeout_max(100)
+        .retries(2)
         .on_header_callback([&response_headers](std::string headers) {
             response_headers += headers;
         })
@@ -1461,6 +1548,8 @@ void HelioQuery::stop_simulation(const std::string helio_api_url, const std::str
 
     http.timeout_connect(20)
         .timeout_max(100)
+        // stop is idempotent — issuing it twice is harmless.
+        .retries(1)
         .on_header_callback([](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -1508,6 +1597,7 @@ HelioQuery::CheckSimulationProgressResult HelioQuery::check_simulation_progress(
 
     http.timeout_connect(20)
         .timeout_max(100)
+        .retries(2)
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -1736,6 +1826,8 @@ void HelioQuery::stop_optimization(const std::string helio_api_url, const std::s
 
     http.timeout_connect(20)
         .timeout_max(100)
+        // stop is idempotent — issuing it twice is harmless.
+        .retries(1)
         .on_header_callback([](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -1783,6 +1875,7 @@ Slic3r::HelioQuery::CheckOptimizationResult HelioQuery::check_optimization_progr
 
     http.timeout_connect(20)
         .timeout_max(100)
+        .retries(2)
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -2452,6 +2545,7 @@ HelioQuery::GetRecentRunsResult HelioQuery::get_recent_runs(const std::string& h
 
     http.timeout_connect(20)
         .timeout_max(100)
+        .retries(2)
         .on_complete([&temp_optimizations, &temp_simulations, &success, &error_msg, &status_code](std::string body, unsigned status) {
             status_code = status;
 
