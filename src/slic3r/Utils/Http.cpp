@@ -335,33 +335,6 @@ Http::priv::priv(const std::string &url)
 	// across threads. Harmless on Windows.
 	::curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
-	// Enable TCP keepalive so idle connections crossing a NAT/firewall/VPN don't get
-	// silently evicted and leave us blocked waiting on a stale socket. On Windows
-	// especially, split-tunnel VPNs and corporate firewalls drop idle flows fast.
-	::curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
-	::curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE,  30L);
-	::curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 15L);
-
-	// Prefer HTTP/2 over TLS when the server advertises it (ALPN-negotiated). Falls
-	// back to HTTP/1.1 transparently. HTTP/2's single-connection-per-origin behavior
-	// combined with the curl_share (see CurlGlobalInit) means repeated polls reuse
-	// the same TCP+TLS connection and amortize the handshake cost.
-	::curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_2TLS);
-
-	// Larger recv/send buffers improve throughput on large gcode uploads and reduce
-	// syscall overhead on fast networks. libcurl caps BUFFERSIZE at 512 KiB internally.
-	::curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 262144L);
-#ifdef CURLOPT_UPLOAD_BUFFERSIZE
-	::curl_easy_setopt(curl, CURLOPT_UPLOAD_BUFFERSIZE, 262144L);
-#endif
-
-	// Attach the process-global curl_share so DNS resolutions and TLS session tickets
-	// are pooled across every Http instance. Each Helio optimization wait makes ~60
-	// polls against the same host; without sharing, each poll is a full TLS handshake
-	// and DNS round-trip. With sharing, polls 2..60 resume the TLS session in 1-RTT.
-	if (CURLSH *share = curl_global_share_handle()) {
-		::curl_easy_setopt(curl, CURLOPT_SHARE, share);
-	}
 }
 
 Http::priv::~priv()
