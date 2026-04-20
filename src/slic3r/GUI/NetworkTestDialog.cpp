@@ -10,6 +10,7 @@
 #include "GUI_App.hpp"
 #include "I18N.hpp"
 #include "slic3r/Utils/Http.hpp"
+#include "slic3r/Utils/HelioDragon.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include <boost/asio/ip/address.hpp>
 #include <boost/log/trivial.hpp>
@@ -427,6 +428,30 @@ wxBoxSizer* NetworkTestDialog::create_content_sizer(wxWindow* parent)
 	text_oss_upload_title->Hide();
 	text_oss_upload_value->Hide();
 
+	btn_helio_ping = new Button(this, _L("Test Helio-Additive"));
+	btn_helio_ping->SetBackgroundColor(btn_bg);
+	grid_sizer->Add(btn_helio_ping, 0, wxEXPAND | wxALL, 5);
+
+	text_helio_ping_title = new wxStaticText(this, wxID_ANY, _L("Test Helio-Additive:"), wxDefaultPosition, wxDefaultSize, 0);
+	text_helio_ping_title->Wrap(-1);
+	grid_sizer->Add(text_helio_ping_title, 0, wxALIGN_RIGHT | wxALL, 5);
+
+	text_helio_ping_value = new wxStaticText(this, wxID_ANY, _L("N/A"), wxDefaultPosition, wxDefaultSize, 0);
+	text_helio_ping_value->Wrap(-1);
+	grid_sizer->Add(text_helio_ping_value, 0, wxALL, 5);
+
+	btn_helio_presigned = new Button(this, _L("Test Helio Presigned URL"));
+	btn_helio_presigned->SetBackgroundColor(btn_bg);
+	grid_sizer->Add(btn_helio_presigned, 0, wxEXPAND | wxALL, 5);
+
+	text_helio_presigned_title = new wxStaticText(this, wxID_ANY, _L("Test Helio Presigned URL:"), wxDefaultPosition, wxDefaultSize, 0);
+	text_helio_presigned_title->Wrap(-1);
+	grid_sizer->Add(text_helio_presigned_title, 0, wxALIGN_RIGHT | wxALL, 5);
+
+	text_helio_presigned_value = new wxStaticText(this, wxID_ANY, _L("N/A"), wxDefaultPosition, wxDefaultSize, 0);
+	text_helio_presigned_value->Wrap(-1);
+	grid_sizer->Add(text_helio_presigned_value, 0, wxALL, 5);
+
 	sizer->Add(grid_sizer, 1, wxEXPAND, 5);
 
 	btn_link->Bind(wxEVT_BUTTON, [this](wxCommandEvent& evt) {
@@ -455,6 +480,14 @@ wxBoxSizer* NetworkTestDialog::create_content_sizer(wxWindow* parent)
 
 	btn_network_plugin->Bind(wxEVT_BUTTON, [this](wxCommandEvent &evt) {
 		start_test_plugin_download_thread();
+	});
+
+	btn_helio_ping->Bind(wxEVT_BUTTON, [this](wxCommandEvent& evt) {
+		start_test_helio_ping_thread();
+	});
+
+	btn_helio_presigned->Bind(wxEVT_BUTTON, [this](wxCommandEvent& evt) {
+		start_test_helio_presigned_thread();
 	});
 
 	return sizer;
@@ -495,7 +528,11 @@ void NetworkTestDialog::init_bind()
 			text_oss_upload_value->SetLabelText(evt.GetString());
 		} else if (evt.GetInt() == TEST_PLUGIN_JOB){
 			text_network_plugin_value->SetLabelText(evt.GetString());
-        }
+        } else if (evt.GetInt() == TEST_HELIO_PING_JOB) {
+			text_helio_ping_value->SetLabelText(evt.GetString());
+		} else if (evt.GetInt() == TEST_HELIO_PRESIGNED_JOB) {
+			text_helio_presigned_value->SetLabelText(evt.GetString());
+		}
 
 		std::time_t t = std::time(0);
 		std::tm* now_time = std::localtime(&t);
@@ -551,6 +588,8 @@ void NetworkTestDialog::start_all_job()
 	start_test_oss_download_thread();
 	start_test_plugin_download_thread();
 	start_test_ping_thread();
+	start_test_helio_ping_thread();
+	start_test_helio_presigned_thread();
 }
 
 void NetworkTestDialog::start_all_job_sequence()
@@ -568,6 +607,10 @@ void NetworkTestDialog::start_all_job_sequence()
 		start_test_oss_download();
 		if (m_closing) return;
 		start_test_plugin_download();
+		if (m_closing) return;
+		start_test_helio_ping();
+		if (m_closing) return;
+		start_test_helio_presigned();
 		update_status(-1, "end_test_sequence");
 	});
 }
@@ -1066,6 +1109,98 @@ void NetworkTestDialog:: start_test_plugin_download(){
     return;
 }
 
+void NetworkTestDialog::start_test_helio_ping()
+{
+	m_in_testing[TEST_HELIO_PING_JOB] = true;
+	update_status(TEST_HELIO_PING_JOB, "test helio ping start...");
+
+	std::string url = HelioQuery::get_helio_api_url();
+	if (url.empty()) {
+		update_status(TEST_HELIO_PING_JOB, "helio api url not configured");
+		m_in_testing[TEST_HELIO_PING_JOB] = false;
+		return;
+	}
+	update_status(-1, "[test_helio_ping]: url=" + url);
+
+	Slic3r::Http http = Slic3r::Http::get(url);
+	int result = -1;
+	http.timeout_connect(10)
+		.timeout_max(15)
+		.on_ip_resolve([this](std::string ip) {
+			wxString ip_report = wxString::Format("test helio ip resolved = %s", ip);
+			update_status(TEST_HELIO_PING_JOB, ip_report);
+		})
+		.on_complete([&result](std::string body, unsigned status) {
+			if (status > 0) result = 0;
+		})
+		.on_error([this, &result](std::string body, std::string error, unsigned int status) {
+			// Any HTTP response (e.g. 400/405 on GET to GraphQL endpoint) means server reachable
+			if (status > 0) {
+				result = 0;
+			} else {
+				wxString info = wxString::Format("status=%u, body=%s, error=%s", status, body, error);
+				this->update_status(TEST_HELIO_PING_JOB, "test helio ping failed");
+				this->update_status(-1, info);
+			}
+		}).perform_sync();
+
+	if (result == 0) {
+		update_status(TEST_HELIO_PING_JOB, "test helio ping ok");
+	}
+	m_in_testing[TEST_HELIO_PING_JOB] = false;
+}
+
+void NetworkTestDialog::start_test_helio_presigned()
+{
+	m_in_testing[TEST_HELIO_PRESIGNED_JOB] = true;
+	update_status(TEST_HELIO_PRESIGNED_JOB, "test helio presigned url start...");
+
+	std::string helio_api_url = HelioQuery::get_helio_api_url();
+	std::string helio_pat     = HelioQuery::get_helio_pat();
+	if (helio_api_url.empty()) {
+		update_status(TEST_HELIO_PRESIGNED_JOB, "helio api url not configured");
+		m_in_testing[TEST_HELIO_PRESIGNED_JOB] = false;
+		return;
+	}
+	if (helio_pat.empty()) {
+		update_status(TEST_HELIO_PRESIGNED_JOB, "helio api key not set");
+		m_in_testing[TEST_HELIO_PRESIGNED_JOB] = false;
+		return;
+	}
+	update_status(-1, "[test_helio_presigned]: url=" + helio_api_url);
+
+	HelioQuery::PresignedURLResult res = HelioQuery::create_presigned_url(helio_api_url, "Bearer " + helio_pat);
+
+	if (!res.trace_id.empty()) {
+		update_status(-1, wxString::Format("[test_helio_presigned]: trace_id=%s", res.trace_id));
+	}
+
+	if (res.error.empty() && res.status == 200 && !res.url.empty()) {
+		update_status(TEST_HELIO_PRESIGNED_JOB, "test helio presigned url ok");
+	} else {
+		wxString info = wxString::Format("status=%u, error=%s", res.status, res.error);
+		update_status(TEST_HELIO_PRESIGNED_JOB, "test helio presigned url failed");
+		update_status(-1, info);
+	}
+	m_in_testing[TEST_HELIO_PRESIGNED_JOB] = false;
+}
+
+void NetworkTestDialog::start_test_helio_ping_thread()
+{
+	if (m_in_testing[TEST_HELIO_PING_JOB]) return;
+	test_job[TEST_HELIO_PING_JOB] = new boost::thread([this] {
+		start_test_helio_ping();
+	});
+}
+
+void NetworkTestDialog::start_test_helio_presigned_thread()
+{
+	if (m_in_testing[TEST_HELIO_PRESIGNED_JOB]) return;
+	test_job[TEST_HELIO_PRESIGNED_JOB] = new boost::thread([this] {
+		start_test_helio_presigned();
+	});
+}
+
 void NetworkTestDialog::start_test_ping_thread()
 {
 	test_job[TEST_PING_JOB] = new boost::thread([this] {
@@ -1173,6 +1308,8 @@ void NetworkTestDialog::set_default()
 	text_oss_download_value->SetLabelText(NA_STR);
 	text_oss_upload_value->SetLabelText(NA_STR);
 	text_network_plugin_value->SetLabelText(NA_STR);
+	text_helio_ping_value->SetLabelText(NA_STR);
+	text_helio_presigned_value->SetLabelText(NA_STR);
 	//text_ping_value->SetLabelText(NA_STR);
 	m_download_cancel = false;
 	m_closing = false;
