@@ -44,8 +44,7 @@ enum TestJob {
 	TEST_PING_JOB = 7,
 	TEST_PLUGIN_JOB = 8,
 	TEST_HELIO_PING_JOB = 9,
-	TEST_HELIO_PRESIGNED_JOB = 10,
-	TEST_JOB_MAX = 11
+	TEST_JOB_MAX = 10
 };
 
 class NetworkTestDialog : public DPIDialog
@@ -90,9 +89,6 @@ protected:
 	Button*     btn_helio_ping;
 	wxStaticText* text_helio_ping_title;
 	wxStaticText* text_helio_ping_value;
-	Button*     btn_helio_presigned;
-	wxStaticText* text_helio_presigned_title;
-	wxStaticText* text_helio_presigned_value;
 	wxStaticText* text_result;
 	wxTextCtrl* txt_log;
 
@@ -133,7 +129,6 @@ public:
 	void start_test_ping_thread();
 	void start_test_plugin_download_thread();
 	void start_test_helio_ping_thread();
-	void start_test_helio_presigned_thread();
 
 	void start_test_bing();
 	void start_test_bambulab();
@@ -144,7 +139,6 @@ public:
 	void start_test_oss_upload();
 	void start_test_plugin_download();
 	void start_test_helio_ping();
-	void start_test_helio_presigned();
 
 	void on_close(wxCloseEvent& event);
 
