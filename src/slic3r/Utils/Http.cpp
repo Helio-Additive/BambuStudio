@@ -321,10 +321,17 @@ Http::priv::priv(const std::string &url)
 #endif
 	::curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, ssl_options);
 
-	// Require at least TLS 1.2 on all platforms, but do not cap the maximum.
-	// Previously this was CURL_SSLVERSION_MAX_TLSv1_2 on Windows, which blocked TLS 1.3
-	// and caused downgrade failures against servers/proxies that expect 1.3.
+	// Require at least TLS 1.2 on all platforms. On Windows we additionally cap the
+	// maximum at TLS 1.2 (TEST C: bisecting a regression where Helio traffic leaves
+	// the Bambu printer camera unable to connect afterward on Windows only). Schannel
+	// TLS 1.3 session state may be interfering with the closed-source Bambu network
+	// plugin's subsequent Schannel usage; revert matches the original pre-133450fee
+	// behavior on Windows while leaving macOS/Linux free to negotiate TLS 1.3.
+#ifdef __WINDOWS__
+	::curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_TLSv1_2);
+#else
 	::curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+#endif
 
 	// Let the resolver pick IPv4 or IPv6 (Happy Eyeballs). Forcing IPv4 means we cannot
 	// fall back when a host's v4 path is flaky on a given network.
