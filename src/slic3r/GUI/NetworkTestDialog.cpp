@@ -259,13 +259,15 @@ wxBoxSizer* NetworkTestDialog::create_top_sizer(wxWindow* parent)
 	btn_download_log = new Button(this, _L("Export Log"));
     btn_download_log->SetBackgroundColor(btn_bg);
 	line_sizer->Add(btn_download_log, 0, wxALL, 5);
-	btn_download_log->Hide();
 
 	btn_start->Bind(wxEVT_BUTTON, [this](wxCommandEvent &evt) {
 			start_all_job();
 		});
 	btn_start_sequence->Bind(wxEVT_BUTTON, [this](wxCommandEvent &evt) {
 			start_all_job_sequence();
+		});
+	btn_download_log->Bind(wxEVT_BUTTON, [](wxCommandEvent&) {
+			desktop_open_any_folder(data_dir() + "/log");
 		});
 	sizer->Add(line_sizer, 0, wxEXPAND, 5);
 	return sizer;
