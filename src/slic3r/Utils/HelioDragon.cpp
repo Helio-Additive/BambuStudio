@@ -24,8 +24,51 @@
 #include <thread>
 #include <chrono>
 #include <memory>
+#include <fstream>
+#include <mutex>
+#include <ctime>
 
 namespace Slic3r {
+
+namespace {
+
+// Writes Helio request/response events to a plain-text log that users can share
+// without needing Bambu's decryption infrastructure. Also mirrors to the encrypted
+// boost log so Bambu support can correlate if needed.
+void helio_log_write(const std::string& msg, bool is_error)
+{
+    if (is_error)
+        BOOST_LOG_TRIVIAL(error) << msg;
+    else
+        BOOST_LOG_TRIVIAL(info) << msg;
+
+    static std::mutex mtx;
+    const std::string path = data_dir() + "/log/helio_requests.log";
+    std::lock_guard<std::mutex> lk(mtx);
+    std::ofstream f(path, std::ios::app);
+    if (!f.is_open()) return;
+    const auto now = std::chrono::system_clock::now();
+    const auto t   = std::chrono::system_clock::to_time_t(now);
+    char ts[24];
+    std::strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&t));
+    f << ts << (is_error ? " [ERR] " : " [INF] ") << msg << "\n";
+}
+
+// Stream-style logger that accumulates via << and writes on destruction.
+// Usage: HelioLogLine(false) << "Helio → op " << id;
+// Polling calls skip this and use BOOST_LOG_TRIVIAL(debug) directly to avoid flooding the file.
+struct HelioLogLine {
+    std::ostringstream ss;
+    bool is_error;
+    explicit HelioLogLine(bool err) : is_error(err) {}
+    HelioLogLine(const HelioLogLine&) = delete;
+    HelioLogLine& operator=(const HelioLogLine&) = delete;
+    ~HelioLogLine() { helio_log_write(ss.str(), is_error); }
+    template<typename T>
+    HelioLogLine& operator<<(const T& v) { ss << v; return *this; }
+};
+
+} // anonymous namespace
 
 std::vector<HelioQuery::SupportedData> HelioQuery::global_supported_printers;
 std::vector<HelioQuery::SupportedData> HelioQuery::global_supported_materials;
@@ -133,12 +176,12 @@ void HelioQuery::request_remaining_optimizations(const std::string & helio_api_u
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → request_remaining_optimizations " << url_copy;
+    HelioLogLine(false) << "Helio → request_remaining_optimizations " << url_copy;
     http.timeout_connect(20)
         .timeout_max(100)
         .retries(2)
         .on_complete([url_copy, key_copy, func](std::string body, unsigned status) {
-        BOOST_LOG_TRIVIAL(info) << "Helio ← request_remaining_optimizations status=" << status;
+        HelioLogLine(false) << "Helio ← request_remaining_optimizations status=" << status;
         try {
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
 
@@ -193,10 +236,10 @@ void HelioQuery::request_remaining_optimizations(const std::string & helio_api_u
             }
         }
         catch (const std::exception& e) {
-            BOOST_LOG_TRIVIAL(error) << "Helio request_remaining_optimizations: " << e.what();
+            HelioLogLine(true) << "Helio request_remaining_optimizations: " << e.what();
             func(0, 0, "", false, false, false);
         } catch (...) {
-            BOOST_LOG_TRIVIAL(error) << "Helio request_remaining_optimizations: unknown error";
+            HelioLogLine(true) << "Helio request_remaining_optimizations: unknown error";
             func(0, 0, "", false, false, false);
         }
             })
@@ -229,7 +272,7 @@ void HelioQuery::request_support_machine(const std::string helio_api_url, const 
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → request_support_machine page=" << page_copy << " " << url_copy;
+    HelioLogLine(false) << "Helio → request_support_machine page=" << page_copy << " " << url_copy;
     http.timeout_connect(20)
         .timeout_max(100)
         .on_complete([url_copy, key_copy, page_copy, retries_left](std::string body, unsigned status) {
@@ -268,7 +311,7 @@ void HelioQuery::request_support_machine(const std::string helio_api_url, const 
                     }
                 }
             } catch (const std::exception& e) {
-                BOOST_LOG_TRIVIAL(error) << "Helio request_support_machine (page " << page_copy << ", retries=" << retries_left << "): " << e.what();
+                HelioLogLine(true) << "Helio request_support_machine (page " << page_copy << ", retries=" << retries_left << "): " << e.what();
                 if (retries_left > 0) {
                     std::this_thread::sleep_for(std::chrono::seconds(2));
                     HelioQuery::request_support_machine(url_copy, key_copy, page_copy, retries_left - 1);
@@ -276,7 +319,7 @@ void HelioQuery::request_support_machine(const std::string helio_api_url, const 
                     HelioQuery::global_printers_fully_loaded = true;
                 }
             } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "Helio request_support_machine (page " << page_copy << ", retries=" << retries_left << "): unknown error";
+                HelioLogLine(true) << "Helio request_support_machine (page " << page_copy << ", retries=" << retries_left << "): unknown error";
                 if (retries_left > 0) {
                     std::this_thread::sleep_for(std::chrono::seconds(2));
                     HelioQuery::request_support_machine(url_copy, key_copy, page_copy, retries_left - 1);
@@ -318,11 +361,11 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → request_support_material page=" << page_copy << " " << url_copy;
+    HelioLogLine(false) << "Helio → request_support_material page=" << page_copy << " " << url_copy;
     http.timeout_connect(20)
         .timeout_max(100)
         .on_complete([url_copy, key_copy, page_copy, retries_left](std::string body, unsigned status) {
-            BOOST_LOG_TRIVIAL(info) << "Helio ← request_support_material page=" << page_copy << " status=" << status;
+            HelioLogLine(false) << "Helio ← request_support_material page=" << page_copy << " status=" << status;
             nlohmann::json                         parsed_obj = nlohmann::json::parse(body);
             std::vector<HelioQuery::SupportedData> supported_materials;
 
@@ -364,7 +407,7 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
                     }
                 }
             } catch (const std::exception& e) {
-                BOOST_LOG_TRIVIAL(error) << "Helio request_support_material (page " << page_copy << ", retries=" << retries_left << "): " << e.what();
+                HelioLogLine(true) << "Helio request_support_material (page " << page_copy << ", retries=" << retries_left << "): " << e.what();
                 if (retries_left > 0) {
                     std::this_thread::sleep_for(std::chrono::seconds(2));
                     HelioQuery::request_support_material(url_copy, key_copy, page_copy, retries_left - 1);
@@ -372,7 +415,7 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
                     HelioQuery::global_materials_fully_loaded = true;
                 }
             } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "Helio request_support_material (page " << page_copy << ", retries=" << retries_left << "): unknown error";
+                HelioLogLine(true) << "Helio request_support_material (page " << page_copy << ", retries=" << retries_left << "): unknown error";
                 if (retries_left > 0) {
                     std::this_thread::sleep_for(std::chrono::seconds(2));
                     HelioQuery::request_support_material(url_copy, key_copy, page_copy, retries_left - 1);
@@ -423,7 +466,7 @@ void HelioQuery::request_print_priority_options(
 
     http.set_post_body(query_body);
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → request_print_priority_options material=" << material_id;
+    HelioLogLine(false) << "Helio → request_print_priority_options material=" << material_id;
     auto response_headers = std::make_shared<std::string>();
     http.timeout_connect(10)
         .timeout_max(30)
@@ -557,13 +600,13 @@ void HelioQuery::request_pat_token(std::function<void(std::string)> func)
     // DNS hiccups, timeouts, 5xx) via the centralized Http retry loop. HTTP 429
     // "not enough quota" is not retryable — it's classified as a 4xx by the retry
     // logic and propagated to on_error, where we translate it to "not_enough".
-    BOOST_LOG_TRIVIAL(info) << "Helio → request_pat_token " << url_copy;
+    HelioLogLine(false) << "Helio → request_pat_token " << url_copy;
     auto http = Http::get(url_copy);
     http.timeout_connect(20)
         .timeout_max(100)
         .retries(3)
         .on_complete([func](std::string body, unsigned status) {
-            BOOST_LOG_TRIVIAL(info) << "Helio ← request_pat_token status=" << status;
+            HelioLogLine(false) << "Helio ← request_pat_token status=" << status;
             if (status == 200) {
                 try {
                     nlohmann::json parsed_obj = nlohmann::json::parse(body);
@@ -573,10 +616,10 @@ void HelioQuery::request_pat_token(std::function<void(std::string)> func)
                         func("error");
                     }
                 } catch (const std::exception &e) {
-                    BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token parse: " << e.what();
+                    HelioLogLine(true) << "Helio request_pat_token parse: " << e.what();
                     func("error");
                 } catch (...) {
-                    BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token parse: unknown error";
+                    HelioLogLine(true) << "Helio request_pat_token parse: unknown error";
                     func("error");
                 }
             } else if (status == 429) {
@@ -586,7 +629,7 @@ void HelioQuery::request_pat_token(std::function<void(std::string)> func)
             }
         })
         .on_error([func](std::string body, std::string error, unsigned status) {
-            BOOST_LOG_TRIVIAL(error) << "Helio request_pat_token error: "
+            HelioLogLine(true) << "Helio request_pat_token error: "
                                      << error << ", status: " << status;
             if (status == 429) {
                 func("not_enough");
@@ -623,7 +666,7 @@ void HelioQuery::optimization_feedback(const std::string helio_api_url, const st
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → optimization_feedback opt_id=" << optimization_id;
+    HelioLogLine(false) << "Helio → optimization_feedback opt_id=" << optimization_id;
     http.timeout_connect(20)
         .timeout_max(100)
         // One retry only — feedback is a POST and the server has no idempotency key,
@@ -664,7 +707,7 @@ HelioQuery::PresignedURLResult HelioQuery::create_presigned_url(const std::strin
         http.header("Accept-Language", "zh-CN");
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → create_presigned_url " << helio_api_url;
+    HelioLogLine(false) << "Helio → create_presigned_url " << helio_api_url;
     http.timeout_connect(20)
         .timeout_max(100)
         // create_presigned_url returns an S3 upload URL. Duplicate URLs from a retry
@@ -685,18 +728,18 @@ HelioQuery::PresignedURLResult HelioQuery::create_presigned_url(const std::strin
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
             if (parsed_obj.contains("error")) {
                 res.error = parsed_obj["error"];
-                BOOST_LOG_TRIVIAL(error) << "Helio ← create_presigned_url status=" << status << " error=" << res.error << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_presigned_url status=" << status << " error=" << res.error << " trace=" << res.trace_id;
             } else {
                 res.key      = parsed_obj["data"]["getPresignedUrl"]["key"];
                 res.mimeType = parsed_obj["data"]["getPresignedUrl"]["mimeType"];
                 res.url      = parsed_obj["data"]["getPresignedUrl"]["url"];
-                BOOST_LOG_TRIVIAL(info) << "Helio ← create_presigned_url status=" << status << " key=" << res.key << " trace=" << res.trace_id;
+                HelioLogLine(false) << "Helio ← create_presigned_url status=" << status << " key=" << res.key << " trace=" << res.trace_id;
             }
         })
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.error  = (boost::format("error: %1%, message: %2%") % error % body).str();
             res.status = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio create_presigned_url error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_presigned_url error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -723,12 +766,12 @@ HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std:
         }
     }
     catch (const std::exception& e) {
-        BOOST_LOG_TRIVIAL(error) << "Helio upload_file check original: " << e.what();
+        HelioLogLine(true) << "Helio upload_file check original: " << e.what();
     } catch (...) {
-        BOOST_LOG_TRIVIAL(error) << "Helio upload_file check original: unknown error";
+        HelioLogLine(true) << "Helio upload_file check original: unknown error";
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → upload_file_to_presigned_url file=" << file_path.filename().string();
+    HelioLogLine(false) << "Helio → upload_file_to_presigned_url file=" << file_path.filename().string();
     http.set_put_body(file_path)
         // S3 PUT against a presigned URL is idempotent: the second PUT just overwrites
         // the first. Two retries gives us resilience for the upload step without
@@ -749,12 +792,12 @@ HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std:
                 res.success = true;
             else
                 res.success = false;
-            BOOST_LOG_TRIVIAL(info) << "Helio ← upload_file_to_presigned_url status=" << status << " success=" << res.success;
+            HelioLogLine(false) << "Helio ← upload_file_to_presigned_url status=" << status << " success=" << res.success;
         })
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.success = false;
             res.error   = (boost::format("status: %1%, error: %2%, %3%") % status % body % error).str();
-            BOOST_LOG_TRIVIAL(error) << "Helio upload_file_to_presigned_url error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio upload_file_to_presigned_url error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -868,13 +911,13 @@ HelioQuery::PollResult HelioQuery::poll_gcode_status(const std::string& helio_ap
                 }
             }
             catch (const std::exception& e) {
-                BOOST_LOG_TRIVIAL(error) << "Helio poll_gcode_status: " << e.what();
+                HelioLogLine(true) << "Helio poll_gcode_status: " << e.what();
             } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "Helio poll_gcode_status: unknown error";
+                HelioLogLine(true) << "Helio poll_gcode_status: unknown error";
             }
         })
         .on_error([&result](std::string poll_body, std::string poll_error, unsigned poll_status) {
-            BOOST_LOG_TRIVIAL(error) << "Helio poll_gcode_status error: " << poll_error << ", status: " << poll_status;
+            HelioLogLine(true) << "Helio poll_gcode_status error: " << poll_error << ", status: " << poll_status;
         })
         .perform_sync();
 
@@ -919,7 +962,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
         http.header("Accept-Language", "zh-CN");
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → create_gcode_v2 printer=" << printer_id << " filament=" << filament_id;
+    HelioLogLine(false) << "Helio → create_gcode_v2 printer=" << printer_id << " filament=" << filament_id;
     http.timeout_connect(20)
         .timeout_max(100)
         .on_header_callback([&res](std::string header_line) {
@@ -940,7 +983,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                 std::string message = format_error(body);
                 res.error = message;
                 res.success = false;
-                BOOST_LOG_TRIVIAL(error) << "Helio ← create_gcode_v2 status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_gcode_v2 status=" << status << " error=" << message << " trace=" << res.trace_id;
                 return;
             }
 
@@ -957,7 +1000,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
             res.sizeKb = gcode["sizeKb"];
             res.status_str = gcode["status"];
             res.progress = gcode["progress"];
-            BOOST_LOG_TRIVIAL(info) << "Helio ← create_gcode_v2 status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+            HelioLogLine(false) << "Helio ← create_gcode_v2 status=" << status << " id=" << res.id << " trace=" << res.trace_id;
 
             // Check for errors in initial response
             if (gcode.contains("errors") && !gcode["errors"].is_null()) {
@@ -1005,7 +1048,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                                          std::chrono::steady_clock::now() - poll_start)
                                          .count();
                 if (elapsed >= kMaxTotalSeconds) {
-                    BOOST_LOG_TRIVIAL(error) << "Helio create_gcode_v2: polling timed out after "
+                    HelioLogLine(true) << "Helio create_gcode_v2: polling timed out after "
                                              << elapsed << "s in state " << res.status_str;
                     res.success = false;
                     res.error = _u8L("Timed out waiting for optimization result. Please try again.");
@@ -1075,7 +1118,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
             res.success = false;
             res.error  = error;
             res.status = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio create_gcode_v2 error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_gcode_v2 error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -1135,7 +1178,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
         http.header("Accept-Language", "zh-CN");
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → create_gcode_v3 printer=" << printer_id;
+    HelioLogLine(false) << "Helio → create_gcode_v3 printer=" << printer_id;
     http.timeout_connect(20)
         .timeout_max(100)
         .on_header_callback([&res](std::string header_line) {
@@ -1156,7 +1199,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
                 std::string message = format_error(body);
                 res.error = message;
                 res.success = false;
-                BOOST_LOG_TRIVIAL(error) << "Helio ← create_gcode_v3 status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_gcode_v3 status=" << status << " error=" << message << " trace=" << res.trace_id;
                 return;
             }
 
@@ -1173,7 +1216,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
             res.sizeKb = gcode["sizeKb"];
             res.status_str = gcode["status"];
             res.progress = gcode["progress"];
-            BOOST_LOG_TRIVIAL(info) << "Helio ← create_gcode_v3 status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+            HelioLogLine(false) << "Helio ← create_gcode_v3 status=" << status << " id=" << res.id << " trace=" << res.trace_id;
 
             // Check for errors in initial response
             if (gcode.contains("errors") && !gcode["errors"].is_null()) {
@@ -1215,7 +1258,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
                                          std::chrono::steady_clock::now() - poll_start)
                                          .count();
                 if (elapsed >= kMaxTotalSeconds) {
-                    BOOST_LOG_TRIVIAL(error) << "Helio create_gcode_v3: polling timed out after "
+                    HelioLogLine(true) << "Helio create_gcode_v3: polling timed out after "
                                              << elapsed << "s in state " << res.status_str;
                     res.success = false;
                     res.error = _u8L("Timed out waiting for optimization result. Please try again.");
@@ -1290,7 +1333,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
             res.success = false;
             res.error  = error;
             res.status = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio create_gcode_v3 error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_gcode_v3 error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -1458,7 +1501,7 @@ std::string HelioQuery::create_optimization_default_get(const std::string helio_
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → create_optimization_default_get gcode_id=" << gcode_id;
+    HelioLogLine(false) << "Helio → create_optimization_default_get gcode_id=" << gcode_id;
     std::string response_headers;
     http.timeout_connect(20)
         .timeout_max(100)
@@ -1467,11 +1510,11 @@ std::string HelioQuery::create_optimization_default_get(const std::string helio_
             response_headers += headers;
         })
         .on_complete([&res](std::string body, unsigned status) {
-            BOOST_LOG_TRIVIAL(info) << "Helio ← create_optimization_default_get status=" << status;
+            HelioLogLine(false) << "Helio ← create_optimization_default_get status=" << status;
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
         })
         .on_error([&res, &response_headers](std::string body, std::string error, unsigned status) {
-            BOOST_LOG_TRIVIAL(error) << "Helio create_optimization_default_get error: " << error << ", status: " << status;
+            HelioLogLine(true) << "Helio create_optimization_default_get error: " << error << ", status: " << status;
         })
         .perform_sync();
 
@@ -1518,7 +1561,7 @@ HelioQuery::CreateSimulationResult HelioQuery::create_simulation(const std::stri
         http.header("Accept-Language", "zh-CN");
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → create_simulation gcode_id=" << gcode_id;
+    HelioLogLine(false) << "Helio → create_simulation gcode_id=" << gcode_id;
     http.timeout_connect(20)
         .timeout_max(100)
         .on_complete([&res](std::string body, unsigned status) {
@@ -1528,19 +1571,19 @@ HelioQuery::CreateSimulationResult HelioQuery::create_simulation(const std::stri
                 std::string message = format_error(body);
                 res.error   = message;
                 res.success = false;
-                BOOST_LOG_TRIVIAL(error) << "Helio ← create_simulation status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_simulation status=" << status << " error=" << message << " trace=" << res.trace_id;
             } else {
                 res.success = true;
                 res.id      = parsed_obj["data"]["createSimulation"]["id"];
                 res.name    = parsed_obj["data"]["createSimulation"]["name"];
-                BOOST_LOG_TRIVIAL(info) << "Helio ← create_simulation status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+                HelioLogLine(false) << "Helio ← create_simulation status=" << status << " id=" << res.id << " trace=" << res.trace_id;
             }
         })
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.success = false;
             res.error  = error;
             res.status = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio create_simulation error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_simulation error: " << error << " status=" << status;
         })
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
@@ -1644,7 +1687,7 @@ HelioQuery::CheckSimulationProgressResult HelioQuery::check_simulation_progress(
             if (parsed_obj.contains("errors")) {
                 std::string message = format_error(body);
                 res.error = message;
-                BOOST_LOG_TRIVIAL(error) << "Helio ← check_simulation_progress status=" << status << " error=" << message;
+                HelioLogLine(true) << "Helio ← check_simulation_progress status=" << status << " error=" << message;
             } else {
                 if (parsed_obj["data"]["simulation"]["status"] == "FAILED") {
                     res.error = _u8L("Helio simulation task failed");
@@ -1719,7 +1762,7 @@ HelioQuery::CheckSimulationProgressResult HelioQuery::check_simulation_progress(
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.error  = error;
             res.status = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio check_simulation_progress error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio check_simulation_progress error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -1804,7 +1847,7 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
         http.header("Accept-Language", "zh-CN");
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Helio → create_optimization gcode_id=" << gcode_id;
+    HelioLogLine(false) << "Helio → create_optimization gcode_id=" << gcode_id;
     http.timeout_connect(20)
         .timeout_max(100)
         .on_header_callback([&res](std::string header_line) {
@@ -1824,19 +1867,19 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
                 std::string message = format_error(body);
                 res.error   = message;
                 res.success = false;
-                BOOST_LOG_TRIVIAL(error) << "Helio ← create_optimization status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_optimization status=" << status << " error=" << message << " trace=" << res.trace_id;
             } else {
                 res.success = true;
                 res.id      = parsed_obj["data"]["createOptimization"]["id"];
                 res.name    = parsed_obj["data"]["createOptimization"]["name"];
-                BOOST_LOG_TRIVIAL(info) << "Helio ← create_optimization status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+                HelioLogLine(false) << "Helio ← create_optimization status=" << status << " id=" << res.id << " trace=" << res.trace_id;
             }
         })
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.success = false;
             res.error   = error;
             res.status  = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio create_optimization error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_optimization error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -1931,7 +1974,7 @@ Slic3r::HelioQuery::CheckOptimizationResult HelioQuery::check_optimization_progr
             if (parsed_obj.contains("errors")) {
                 std::string message = format_error(body);
                 res.error = message;
-                BOOST_LOG_TRIVIAL(error) << "Helio ← check_optimization_progress status=" << status << " error=" << message;
+                HelioLogLine(true) << "Helio ← check_optimization_progress status=" << status << " error=" << message;
             } else {
                 if (parsed_obj["data"]["optimization"]["status"] == "FAILED") {
                     res.error = _u8L("Helio optimization task failed");
@@ -1952,7 +1995,7 @@ Slic3r::HelioQuery::CheckOptimizationResult HelioQuery::check_optimization_progr
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.error  = error;
             res.status = status;
-            BOOST_LOG_TRIVIAL(error) << "Helio check_optimization_progress error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio check_optimization_progress error: " << error << " status=" << status;
         })
         .perform_sync();
 
@@ -2012,11 +2055,11 @@ void HelioBackgroundProcess::clear_helio_file_cache()
             int deleted = boost::nowide::remove(original_path_name.c_str());
 
             if (deleted != 0) {
-                BOOST_LOG_TRIVIAL(error) << "Helio Failed to delete file";
+                HelioLogLine(true) << "HelioFailed to delete file";
             }
         }
         catch (...) {
-            BOOST_LOG_TRIVIAL(error) << "Helio Failed to delete file";
+            HelioLogLine(true) << "HelioFailed to delete file";
         }
     }
 }
@@ -2225,7 +2268,7 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
                     } else {
                         set_state(STATE_CANCELED);
 
-                        BOOST_LOG_TRIVIAL(error) << "Helio simulation progress check returned error: " << check_simulation_progress_res.error;
+                        HelioLogLine(true) << "Helio simulation progress check returned error: " << check_simulation_progress_res.error;
                         
                         std::string error_msg = _u8L("Helio: simulation failed") + "\n" + check_simulation_progress_res.error;
                         Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, "", "",
@@ -2255,9 +2298,9 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
                 error = _u8L("Helio: Failed to create Simulation") + "\n" + create_simulation_res.error;
             }
             catch (const std::exception& e) {
-                BOOST_LOG_TRIVIAL(error) << "Helio create_simulation_step format error: " << e.what();
+                HelioLogLine(true) << "Helio create_simulation_step format error: " << e.what();
             } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "Helio create_simulation_step format error: unknown error";
+                HelioLogLine(true) << "Helio create_simulation_step format error: unknown error";
             }
             
             Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, "", "", false, error);
@@ -2272,9 +2315,9 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
             error = _u8L("Helio: Failed to create GCode") + "\n" + create_gcode_res.error;
         }
         catch (const std::exception& e) {
-            BOOST_LOG_TRIVIAL(error) << "Helio create_simulation_step GCode format error: " << e.what();
+            HelioLogLine(true) << "Helio create_simulation_step GCode format error: " << e.what();
         } catch (...) {
-            BOOST_LOG_TRIVIAL(error) << "Helio create_simulation_step GCode format error: unknown error";
+            HelioLogLine(true) << "Helio create_simulation_step GCode format error: unknown error";
         }
 
         Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, "", "", false, error);
@@ -2364,7 +2407,7 @@ void HelioBackgroundProcess::create_optimization_step(HelioQuery::CreateGCodeRes
                     else {
                         set_state(STATE_CANCELED);
                         
-                        BOOST_LOG_TRIVIAL(error) << "Helio optimization progress check returned error: " << check_optimzaion_progress_res.error;
+                        HelioLogLine(true) << "Helio optimization progress check returned error: " << check_optimzaion_progress_res.error;
                         
                         std::string error_msg = _u8L("Helio: optimization failed") + "\n" + check_optimzaion_progress_res.error;
                         Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, "", "",
@@ -2397,9 +2440,9 @@ void HelioBackgroundProcess::create_optimization_step(HelioQuery::CreateGCodeRes
                 error = _u8L("Helio: Failed to create Optimization") + "\n" + create_optimization_res.error;
             }
             catch (const std::exception& e) {
-                BOOST_LOG_TRIVIAL(error) << "Helio create_optimization_step format error: " << e.what();
+                HelioLogLine(true) << "Helio create_optimization_step format error: " << e.what();
             } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "Helio create_optimization_step format error: unknown error";
+                HelioLogLine(true) << "Helio create_optimization_step format error: unknown error";
             }
 
             Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, "", "", false,
@@ -2416,10 +2459,10 @@ void HelioBackgroundProcess::create_optimization_step(HelioQuery::CreateGCodeRes
             error = _u8L("Helio: Failed to create GCode") + "\n" + create_gcode_res.error;
         }
         catch (const std::exception& e) {
-            BOOST_LOG_TRIVIAL(error) << "Helio create_optimization_step gcode error: " << e.what();
+            HelioLogLine(true) << "Helio create_optimization_step gcode error: " << e.what();
             error = "Helio: Failed to create GCode";
         } catch (...) {
-            BOOST_LOG_TRIVIAL(error) << "Helio create_optimization_step gcode: unknown error";
+            HelioLogLine(true) << "Helio create_optimization_step gcode: unknown error";
             error = "Helio: Failed to create GCode";
         }
 
@@ -2511,10 +2554,10 @@ void HelioBackgroundProcess::save_downloaded_gcode_and_load_preview(std::string 
             error = _u8L("Helio: GCode download failed") + "\n" + response_error;
         }
         catch (const std::exception& e) {
-            BOOST_LOG_TRIVIAL(error) << "Helio gcode download error: " << e.what();
+            HelioLogLine(true) << "Helio gcode download error: " << e.what();
             error = "Helio: GCode download failed";
         } catch (...) {
-            BOOST_LOG_TRIVIAL(error) << "Helio gcode download: unknown error";
+            HelioLogLine(true) << "Helio gcode download: unknown error";
             error = "Helio: GCode download failed";
         }
 
