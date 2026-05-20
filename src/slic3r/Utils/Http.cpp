@@ -301,6 +301,8 @@ Http::priv::priv(const std::string &url)
 	set_timeout_connect(DEFAULT_TIMEOUT_CONNECT);
     set_timeout_max(DEFAULT_TIMEOUT_MAX);
 	::curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, log_trace);
+	if (CURLSH *sh = curl_global_share_handle())
+		::curl_easy_setopt(curl, CURLOPT_SHARE, sh);
 	::curl_easy_setopt(curl, CURLOPT_URL, url.c_str());   // curl makes a copy internally
 	::curl_easy_setopt(curl, CURLOPT_USERAGENT, SLIC3R_APP_NAME "/" SLIC3R_VERSION);
 	::curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, &error_buffer.front());
@@ -653,6 +655,11 @@ void Http::priv::http_perform()
 			case CURLE_REMOTE_ACCESS_DENIED:
 			// We handle HTTP status-code errors separately via the response code branch.
 			case CURLE_HTTP_RETURNED_ERROR:
+			// SSL certificate/verification errors — retrying won't fix a bad cert.
+			case CURLE_PEER_FAILED_VERIFICATION:
+			case CURLE_SSL_CERTPROBLEM:
+			case CURLE_SSL_CIPHER:
+			case CURLE_SSL_CACERT:
 				return false;
 			// Everything else — DNS failures, connect refusals, TLS handshake failures
 			// (critical on Windows with Schannel), timeouts, partial reads — is retried.

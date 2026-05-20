@@ -50,7 +50,13 @@ void helio_log_write(const std::string& msg, bool is_error)
     const auto now = std::chrono::system_clock::now();
     const auto t   = std::chrono::system_clock::to_time_t(now);
     char ts[24];
-    std::strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&t));
+    struct tm tm_buf{};
+#if defined(_WIN32)
+    gmtime_s(&tm_buf, &t);
+#else
+    gmtime_r(&t, &tm_buf);
+#endif
+    std::strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
     f << ts << (is_error ? " [ERR] " : " [INF] ") << msg << "\n";
 }
 
@@ -177,11 +183,13 @@ void HelioQuery::request_remaining_optimizations(const std::string & helio_api_u
         .set_post_body(query_body);
 
     HelioLogLine(false) << "Helio → request_remaining_optimizations " << url_copy;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         .retries(2)
-        .on_complete([url_copy, key_copy, func](std::string body, unsigned status) {
-        HelioLogLine(false) << "Helio ← request_remaining_optimizations status=" << status;
+        .on_complete([url_copy, key_copy, func, req_start](std::string body, unsigned status) {
+        const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+        HelioLogLine(false) << "Helio ← request_remaining_optimizations status=" << status << " duration=" << req_ms << "ms";
         try {
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
 
@@ -243,9 +251,10 @@ void HelioQuery::request_remaining_optimizations(const std::string & helio_api_u
             func(0, 0, "", false, false, false);
         }
             })
-        .on_error([func](std::string body, std::string error, unsigned status) {
+        .on_error([func, req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio request_remaining_optimizations error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
             func(0, 0, "", false, false, false);
-            BOOST_LOG_TRIVIAL(error) << "Failed to obtain remaining optimization attempts: " << error << ", status: " << status;
         })
         .perform();
 }
@@ -273,9 +282,12 @@ void HelioQuery::request_support_machine(const std::string helio_api_url, const 
         .set_post_body(query_body);
 
     HelioLogLine(false) << "Helio → request_support_machine page=" << page_copy << " " << url_copy;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
-        .on_complete([url_copy, key_copy, page_copy, retries_left](std::string body, unsigned status) {
+        .on_complete([url_copy, key_copy, page_copy, retries_left, req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(false) << "Helio ← request_support_machine page=" << page_copy << " status=" << status << " duration=" << req_ms << "ms";
             nlohmann::json                         parsed_obj = nlohmann::json::parse(body);
             std::vector<HelioQuery::SupportedData> supported_printers;
 
@@ -328,8 +340,9 @@ void HelioQuery::request_support_machine(const std::string helio_api_url, const 
                 }
             }
         })
-        .on_error([url_copy, key_copy, page_copy, retries_left](std::string body, std::string error, unsigned status) {
-            BOOST_LOG_TRIVIAL(error) << "request_support_machine error (page " << page_copy << ", retries=" << retries_left << "): " << error << ", status: " << status << ", body: " << body;
+        .on_error([url_copy, key_copy, page_copy, retries_left, req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio request_support_machine error (page " << page_copy << ", retries=" << retries_left << "): " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
             if (retries_left > 0) {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 HelioQuery::request_support_machine(url_copy, key_copy, page_copy, retries_left - 1);
@@ -362,10 +375,12 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
         .set_post_body(query_body);
 
     HelioLogLine(false) << "Helio → request_support_material page=" << page_copy << " " << url_copy;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
-        .on_complete([url_copy, key_copy, page_copy, retries_left](std::string body, unsigned status) {
-            HelioLogLine(false) << "Helio ← request_support_material page=" << page_copy << " status=" << status;
+        .on_complete([url_copy, key_copy, page_copy, retries_left, req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(false) << "Helio ← request_support_material page=" << page_copy << " status=" << status << " duration=" << req_ms << "ms";
             nlohmann::json                         parsed_obj = nlohmann::json::parse(body);
             std::vector<HelioQuery::SupportedData> supported_materials;
 
@@ -424,8 +439,9 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
                 }
             }
         })
-        .on_error([url_copy, key_copy, page_copy, retries_left](std::string body, std::string error, unsigned status) {
-            BOOST_LOG_TRIVIAL(error) << "request_support_material error (page " << page_copy << ", retries=" << retries_left << "): " << error << ", status: " << status << ", body: " << body;
+        .on_error([url_copy, key_copy, page_copy, retries_left, req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio request_support_material error (page " << page_copy << ", retries=" << retries_left << "): " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
             if (retries_left > 0) {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 HelioQuery::request_support_material(url_copy, key_copy, page_copy, retries_left - 1);
@@ -466,15 +482,18 @@ void HelioQuery::request_print_priority_options(
 
     http.set_post_body(query_body);
 
-    HelioLogLine(false) << "Helio → request_print_priority_options material=" << material_id;
+    HelioLogLine(false) << "Helio → request_print_priority_options material=" << material_id << " url=" << helio_api_url;
     auto response_headers = std::make_shared<std::string>();
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(10)
         .timeout_max(30)
         .retries(2)
         .on_header_callback([response_headers](std::string headers) {
             *response_headers += headers;
         })
-        .on_complete([callback, material_id, response_headers](std::string body, unsigned status) {
+        .on_complete([callback, material_id, response_headers, req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(false) << "Helio ← request_print_priority_options status=" << status << " duration=" << req_ms << "ms";
             BOOST_LOG_TRIVIAL(info) << "request_print_priority_options response: " << body;
 
             GetPrintPriorityOptionsResult result;
@@ -526,9 +545,9 @@ void HelioQuery::request_print_priority_options(
 
             callback(result);
         })
-        .on_error([callback, response_headers](std::string body, std::string error, unsigned status) {
-            BOOST_LOG_TRIVIAL(error) << "request_print_priority_options error: " << error
-                                    << ", status: " << status << ", body: " << body;
+        .on_error([callback, response_headers, req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio request_print_priority_options error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
             GetPrintPriorityOptionsResult result;
             result.success = false;
             result.error = error;
@@ -602,11 +621,13 @@ void HelioQuery::request_pat_token(std::function<void(std::string)> func)
     // logic and propagated to on_error, where we translate it to "not_enough".
     HelioLogLine(false) << "Helio → request_pat_token " << url_copy;
     auto http = Http::get(url_copy);
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         .retries(3)
-        .on_complete([func](std::string body, unsigned status) {
-            HelioLogLine(false) << "Helio ← request_pat_token status=" << status;
+        .on_complete([func, req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(false) << "Helio ← request_pat_token status=" << status << " duration=" << req_ms << "ms";
             if (status == 200) {
                 try {
                     nlohmann::json parsed_obj = nlohmann::json::parse(body);
@@ -628,9 +649,10 @@ void HelioQuery::request_pat_token(std::function<void(std::string)> func)
                 func("error");
             }
         })
-        .on_error([func](std::string body, std::string error, unsigned status) {
+        .on_error([func, req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             HelioLogLine(true) << "Helio request_pat_token error: "
-                                     << error << ", status: " << status;
+                                     << error << ", status: " << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
             if (status == 429) {
                 func("not_enough");
             } else {
@@ -666,7 +688,8 @@ void HelioQuery::optimization_feedback(const std::string helio_api_url, const st
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    HelioLogLine(false) << "Helio → optimization_feedback opt_id=" << optimization_id;
+    HelioLogLine(false) << "Helio → optimization_feedback opt_id=" << optimization_id << " url=" << helio_api_url << " rating=" << rating;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         // One retry only — feedback is a POST and the server has no idempotency key,
@@ -674,13 +697,13 @@ void HelioQuery::optimization_feedback(const std::string helio_api_url, const st
         // errors (the Windows failure mode) are safe because nothing reached the server.
         .retries(1)
         .on_complete([=](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(false) << "Helio ← optimization_feedback status=" << status << " duration=" << req_ms << "ms";
             BOOST_LOG_TRIVIAL(info) << "optimization_feedback response: " << body << ", status: " << status;
         })
         .on_error([=](std::string body, std::string error, unsigned status) {
-            BOOST_LOG_TRIVIAL(error) << "optimization_feedback error: " << error
-                                     << ", status: " << status
-                                     << ", body: " << body
-                                     << ", optimization_id: " << optimization_id;
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio optimization_feedback error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
         })
         .perform();
 }
@@ -708,6 +731,7 @@ HelioQuery::PresignedURLResult HelioQuery::create_presigned_url(const std::strin
     }
 
     HelioLogLine(false) << "Helio → create_presigned_url " << helio_api_url;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         // create_presigned_url returns an S3 upload URL. Duplicate URLs from a retry
@@ -723,23 +747,25 @@ HelioQuery::PresignedURLResult HelioQuery::create_presigned_url(const std::strin
                 res.trace_id = trace_id;
             }
         })
-        .on_complete([&res](std::string body, unsigned status) {
+        .on_complete([&res, &req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.status = status;
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
             if (parsed_obj.contains("error")) {
                 res.error = parsed_obj["error"];
-                HelioLogLine(true) << "Helio ← create_presigned_url status=" << status << " error=" << res.error << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_presigned_url status=" << status << " error=" << res.error << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
             } else {
                 res.key      = parsed_obj["data"]["getPresignedUrl"]["key"];
                 res.mimeType = parsed_obj["data"]["getPresignedUrl"]["mimeType"];
                 res.url      = parsed_obj["data"]["getPresignedUrl"]["url"];
-                HelioLogLine(false) << "Helio ← create_presigned_url status=" << status << " key=" << res.key << " trace=" << res.trace_id;
+                HelioLogLine(false) << "Helio ← create_presigned_url status=" << status << " key=" << res.key << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
             }
         })
-        .on_error([&res](std::string body, std::string error, unsigned status) {
+        .on_error([&res, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.error  = (boost::format("error: %1%, message: %2%") % error % body).str();
             res.status = status;
-            HelioLogLine(true) << "Helio create_presigned_url error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_presigned_url error: " << error << " status=" << status << " duration=" << req_ms << "ms";
         })
         .perform_sync();
 
@@ -771,7 +797,10 @@ HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std:
         HelioLogLine(true) << "Helio upload_file check original: unknown error";
     }
 
-    HelioLogLine(false) << "Helio → upload_file_to_presigned_url file=" << file_path.filename().string();
+    uintmax_t file_sz = 0;
+    try { file_sz = boost::filesystem::file_size(file_path); } catch (...) {}
+    HelioLogLine(false) << "Helio → upload_file_to_presigned_url file=" << file_path.filename().string() << " size=" << file_sz << "B";
+    const auto req_start = std::chrono::steady_clock::now();
     http.set_put_body(file_path)
         // S3 PUT against a presigned URL is idempotent: the second PUT just overwrites
         // the first. Two retries gives us resilience for the upload step without
@@ -787,17 +816,19 @@ HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std:
                 res.trace_id = trace_id;
             }
         })
-        .on_complete([&res](std::string body, unsigned status) {
+        .on_complete([&res, &req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             if (status == 200)
                 res.success = true;
             else
                 res.success = false;
-            HelioLogLine(false) << "Helio ← upload_file_to_presigned_url status=" << status << " success=" << res.success;
+            HelioLogLine(false) << "Helio ← upload_file_to_presigned_url status=" << status << " success=" << res.success << " duration=" << req_ms << "ms";
         })
-        .on_error([&res](std::string body, std::string error, unsigned status) {
+        .on_error([&res, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.success = false;
             res.error   = (boost::format("status: %1%, error: %2%, %3%") % status % body % error).str();
-            HelioLogLine(true) << "Helio upload_file_to_presigned_url error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio upload_file_to_presigned_url error: " << error << " status=" << status << " duration=" << req_ms << "ms";
         })
         .perform_sync();
 
@@ -818,6 +849,7 @@ HelioQuery::PollResult HelioQuery::poll_gcode_status(const std::string& helio_ap
     std::string poll_body = (boost::format(poll_query) % gcode_id).str();
 
     BOOST_LOG_TRIVIAL(debug) << "Helio → poll_gcode_status id=" << gcode_id;
+    const auto req_start = std::chrono::steady_clock::now();
     auto poll_http = Http::post(helio_api_url);
     poll_http.header("Content-Type", "application/json")
         .header("Authorization", helio_api_key)
@@ -916,8 +948,9 @@ HelioQuery::PollResult HelioQuery::poll_gcode_status(const std::string& helio_ap
                 HelioLogLine(true) << "Helio poll_gcode_status: unknown error";
             }
         })
-        .on_error([&result](std::string poll_body, std::string poll_error, unsigned poll_status) {
-            HelioLogLine(true) << "Helio poll_gcode_status error: " << poll_error << ", status: " << poll_status;
+        .on_error([&result, &req_start](std::string poll_body, std::string poll_error, unsigned poll_status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio poll_gcode_status error: " << poll_error << " status=" << poll_status << " duration=" << req_ms << "ms" << " body=" << poll_body.substr(0, 300);
         })
         .perform_sync();
 
@@ -962,7 +995,8 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
         http.header("Accept-Language", "zh-CN");
     }
 
-    HelioLogLine(false) << "Helio → create_gcode_v2 printer=" << printer_id << " filament=" << filament_id;
+    HelioLogLine(false) << "Helio → create_gcode_v2 printer=" << printer_id << " filament=" << filament_id << " url=" << helio_api_url;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         .on_header_callback([&res](std::string header_line) {
@@ -975,7 +1009,8 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                 res.trace_id = trace_id;
             }
         })
-        .on_complete([&res, helio_api_url, helio_api_key](std::string body, unsigned status) {
+        .on_complete([&res, &req_start, helio_api_url, helio_api_key](std::string body, unsigned status) {
+        const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
         res.status = status;
         try {
             json parsed_obj = json::parse(body);
@@ -983,7 +1018,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                 std::string message = format_error(body);
                 res.error = message;
                 res.success = false;
-                HelioLogLine(true) << "Helio ← create_gcode_v2 status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_gcode_v2 status=" << status << " error=" << message << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
                 return;
             }
 
@@ -1000,7 +1035,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
             res.sizeKb = gcode["sizeKb"];
             res.status_str = gcode["status"];
             res.progress = gcode["progress"];
-            HelioLogLine(false) << "Helio ← create_gcode_v2 status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+            HelioLogLine(false) << "Helio ← create_gcode_v2 status=" << status << " id=" << res.id << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
 
             // Check for errors in initial response
             if (gcode.contains("errors") && !gcode["errors"].is_null()) {
@@ -1042,8 +1077,6 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
             int consecutive_failures = 0;
 
             while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED") {
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-
                 const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                          std::chrono::steady_clock::now() - poll_start)
                                          .count();
@@ -1055,6 +1088,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
                     return;
                 }
 
+                std::this_thread::sleep_for(std::chrono::seconds(2));
                 PollResult poll_res = poll_gcode_status(helio_api_url, helio_api_key, res.id);
 
                 if (!poll_res.success) {
@@ -1114,11 +1148,12 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode(const std::string key,
             res.error = _u8L("Failed to parse response");
         }
         })
-        .on_error([&res](std::string body, std::string error, unsigned status) {
+        .on_error([&res, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.success = false;
             res.error  = error;
             res.status = status;
-            HelioLogLine(true) << "Helio create_gcode_v2 error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_gcode_v2 error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
         })
         .perform_sync();
 
@@ -1178,7 +1213,8 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
         http.header("Accept-Language", "zh-CN");
     }
 
-    HelioLogLine(false) << "Helio → create_gcode_v3 printer=" << printer_id;
+    HelioLogLine(false) << "Helio → create_gcode_v3 printer=" << printer_id << " url=" << helio_api_url;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         .on_header_callback([&res](std::string header_line) {
@@ -1191,7 +1227,8 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
                 res.trace_id = trace_id;
             }
         })
-        .on_complete([&res, helio_api_url, helio_api_key](std::string body, unsigned status) {
+        .on_complete([&res, &req_start, helio_api_url, helio_api_key](std::string body, unsigned status) {
+        const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
         res.status = status;
         try {
             json parsed_obj = json::parse(body);
@@ -1199,7 +1236,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
                 std::string message = format_error(body);
                 res.error = message;
                 res.success = false;
-                HelioLogLine(true) << "Helio ← create_gcode_v3 status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_gcode_v3 status=" << status << " error=" << message << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
                 return;
             }
 
@@ -1216,7 +1253,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
             res.sizeKb = gcode["sizeKb"];
             res.status_str = gcode["status"];
             res.progress = gcode["progress"];
-            HelioLogLine(false) << "Helio ← create_gcode_v3 status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+            HelioLogLine(false) << "Helio ← create_gcode_v3 status=" << status << " id=" << res.id << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
 
             // Check for errors in initial response
             if (gcode.contains("errors") && !gcode["errors"].is_null()) {
@@ -1252,8 +1289,6 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
             int consecutive_failures = 0;
 
             while (res.status_str != "READY" && res.status_str != "ERROR" && res.status_str != "RESTRICTED") {
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-
                 const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                          std::chrono::steady_clock::now() - poll_start)
                                          .count();
@@ -1265,6 +1300,7 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
                     return;
                 }
 
+                std::this_thread::sleep_for(std::chrono::seconds(2));
                 PollResult poll_res = poll_gcode_status(helio_api_url, helio_api_key, res.id);
 
                 if (!poll_res.success) {
@@ -1329,11 +1365,12 @@ HelioQuery::CreateGCodeResult HelioQuery::create_gcode_v3(const std::string key,
             res.error = _u8L("Failed to parse response");
         }
         })
-        .on_error([&res](std::string body, std::string error, unsigned status) {
+        .on_error([&res, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.success = false;
             res.error  = error;
             res.status = status;
-            HelioLogLine(true) << "Helio create_gcode_v3 error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_gcode_v3 error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
         })
         .perform_sync();
 
@@ -1501,7 +1538,8 @@ std::string HelioQuery::create_optimization_default_get(const std::string helio_
         .header("HelioAdditive-Client-Version", GUI::VersionInfo::convert_full_version(SLIC3R_VERSION))
         .set_post_body(query_body);
 
-    HelioLogLine(false) << "Helio → create_optimization_default_get gcode_id=" << gcode_id;
+    HelioLogLine(false) << "Helio → create_optimization_default_get gcode_id=" << gcode_id << " url=" << helio_api_url;
+    const auto req_start = std::chrono::steady_clock::now();
     std::string response_headers;
     http.timeout_connect(20)
         .timeout_max(100)
@@ -1509,12 +1547,14 @@ std::string HelioQuery::create_optimization_default_get(const std::string helio_
         .on_header_callback([&response_headers](std::string headers) {
             response_headers += headers;
         })
-        .on_complete([&res](std::string body, unsigned status) {
-            HelioLogLine(false) << "Helio ← create_optimization_default_get status=" << status;
+        .on_complete([&res, &req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(false) << "Helio ← create_optimization_default_get status=" << status << " duration=" << req_ms << "ms";
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
         })
-        .on_error([&res, &response_headers](std::string body, std::string error, unsigned status) {
-            HelioLogLine(true) << "Helio create_optimization_default_get error: " << error << ", status: " << status;
+        .on_error([&res, &response_headers, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
+            HelioLogLine(true) << "Helio create_optimization_default_get error: " << error << " status=" << status << " duration=" << req_ms << "ms";
         })
         .perform_sync();
 
@@ -1561,29 +1601,32 @@ HelioQuery::CreateSimulationResult HelioQuery::create_simulation(const std::stri
         http.header("Accept-Language", "zh-CN");
     }
 
-    HelioLogLine(false) << "Helio → create_simulation gcode_id=" << gcode_id;
+    HelioLogLine(false) << "Helio → create_simulation gcode_id=" << gcode_id << " url=" << helio_api_url;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
-        .on_complete([&res](std::string body, unsigned status) {
+        .on_complete([&res, &req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
             res.status                = status;
             if (parsed_obj.contains("errors")) {
                 std::string message = format_error(body);
                 res.error   = message;
                 res.success = false;
-                HelioLogLine(true) << "Helio ← create_simulation status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_simulation status=" << status << " error=" << message << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
             } else {
                 res.success = true;
                 res.id      = parsed_obj["data"]["createSimulation"]["id"];
                 res.name    = parsed_obj["data"]["createSimulation"]["name"];
-                HelioLogLine(false) << "Helio ← create_simulation status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+                HelioLogLine(false) << "Helio ← create_simulation status=" << status << " id=" << res.id << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
             }
         })
-        .on_error([&res](std::string body, std::string error, unsigned status) {
+        .on_error([&res, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.success = false;
             res.error  = error;
             res.status = status;
-            HelioLogLine(true) << "Helio create_simulation error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_simulation error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
         })
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
@@ -1762,7 +1805,7 @@ HelioQuery::CheckSimulationProgressResult HelioQuery::check_simulation_progress(
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.error  = error;
             res.status = status;
-            HelioLogLine(true) << "Helio check_simulation_progress error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio check_simulation_progress error: " << error << " status=" << status << " body=" << body.substr(0, 300);
         })
         .perform_sync();
 
@@ -1847,7 +1890,8 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
         http.header("Accept-Language", "zh-CN");
     }
 
-    HelioLogLine(false) << "Helio → create_optimization gcode_id=" << gcode_id;
+    HelioLogLine(false) << "Helio → create_optimization gcode_id=" << gcode_id << " url=" << helio_api_url;
+    const auto req_start = std::chrono::steady_clock::now();
     http.timeout_connect(20)
         .timeout_max(100)
         .on_header_callback([&res](std::string header_line) {
@@ -1860,26 +1904,28 @@ Slic3r::HelioQuery::CreateOptimizationResult HelioQuery::create_optimization(con
                 res.trace_id = trace_id;
             }
         })
-        .on_complete([&res](std::string body, unsigned status) {
+        .on_complete([&res, &req_start](std::string body, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             nlohmann::json parsed_obj = nlohmann::json::parse(body);
             res.status                = status;
             if (parsed_obj.contains("errors")) {
                 std::string message = format_error(body);
                 res.error   = message;
                 res.success = false;
-                HelioLogLine(true) << "Helio ← create_optimization status=" << status << " error=" << message << " trace=" << res.trace_id;
+                HelioLogLine(true) << "Helio ← create_optimization status=" << status << " error=" << message << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
             } else {
                 res.success = true;
                 res.id      = parsed_obj["data"]["createOptimization"]["id"];
                 res.name    = parsed_obj["data"]["createOptimization"]["name"];
-                HelioLogLine(false) << "Helio ← create_optimization status=" << status << " id=" << res.id << " trace=" << res.trace_id;
+                HelioLogLine(false) << "Helio ← create_optimization status=" << status << " id=" << res.id << " trace=" << res.trace_id << " duration=" << req_ms << "ms";
             }
         })
-        .on_error([&res](std::string body, std::string error, unsigned status) {
+        .on_error([&res, &req_start](std::string body, std::string error, unsigned status) {
+            const auto req_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - req_start).count();
             res.success = false;
             res.error   = error;
             res.status  = status;
-            HelioLogLine(true) << "Helio create_optimization error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio create_optimization error: " << error << " status=" << status << " duration=" << req_ms << "ms" << " body=" << body.substr(0, 300);
         })
         .perform_sync();
 
@@ -1995,7 +2041,7 @@ Slic3r::HelioQuery::CheckOptimizationResult HelioQuery::check_optimization_progr
         .on_error([&res](std::string body, std::string error, unsigned status) {
             res.error  = error;
             res.status = status;
-            HelioLogLine(true) << "Helio check_optimization_progress error: " << error << " status=" << status;
+            HelioLogLine(true) << "Helio check_optimization_progress error: " << error << " status=" << status << " body=" << body.substr(0, 300);
         })
         .perform_sync();
 
@@ -2055,11 +2101,11 @@ void HelioBackgroundProcess::clear_helio_file_cache()
             int deleted = boost::nowide::remove(original_path_name.c_str());
 
             if (deleted != 0) {
-                HelioLogLine(true) << "HelioFailed to delete file";
+                HelioLogLine(true) << "Helio Failed to delete file";
             }
         }
         catch (...) {
-            HelioLogLine(true) << "HelioFailed to delete file";
+            HelioLogLine(true) << "Helio Failed to delete file";
         }
     }
 }
