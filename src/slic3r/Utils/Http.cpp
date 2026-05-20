@@ -656,10 +656,9 @@ void Http::priv::http_perform()
 			// We handle HTTP status-code errors separately via the response code branch.
 			case CURLE_HTTP_RETURNED_ERROR:
 			// SSL certificate/verification errors — retrying won't fix a bad cert.
-			case CURLE_PEER_FAILED_VERIFICATION:
+			case CURLE_PEER_FAILED_VERIFICATION: // also covers deprecated CURLE_SSL_CACERT alias
 			case CURLE_SSL_CERTPROBLEM:
 			case CURLE_SSL_CIPHER:
-			case CURLE_SSL_CACERT:
 				return false;
 			// Everything else — DNS failures, connect refusals, TLS handshake failures
 			// (critical on Windows with Schannel), timeouts, partial reads — is retried.
