@@ -27,6 +27,7 @@
 #include <fstream>
 #include <mutex>
 #include <ctime>
+#include <boost/filesystem.hpp>
 
 namespace Slic3r {
 
@@ -43,9 +44,15 @@ void helio_log_write(const std::string& msg, bool is_error)
         BOOST_LOG_TRIVIAL(info) << msg;
 
     static std::mutex mtx;
-    const std::string path = data_dir() + "/log/helio_requests.log";
+    if (data_dir().empty()) return;
+    const boost::filesystem::path log_path =
+        boost::filesystem::path(data_dir()) / "log" / "helio_requests.log";
     std::lock_guard<std::mutex> lk(mtx);
-    std::ofstream f(path, std::ios::app);
+#if defined(_WIN32)
+    std::ofstream f(log_path.wstring(), std::ios::app);
+#else
+    std::ofstream f(log_path.string(), std::ios::app);
+#endif
     if (!f.is_open()) return;
     const auto now = std::chrono::system_clock::now();
     const auto t   = std::chrono::system_clock::to_time_t(now);
