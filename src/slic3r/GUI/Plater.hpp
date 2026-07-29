@@ -53,6 +53,7 @@ class SLAPrint;
 class PartPlateList;
 class SlicingStatusEvent;
 class HelioCompletionEvent;
+class HelioActionEvent;
 enum SLAPrintObjectStep : unsigned int;
 enum class ConversionType : int;
 class DevAms;
@@ -125,7 +126,7 @@ wxDECLARE_EVENT(EVT_SWITCH_TO_PREPARE_TAB, wxCommandEvent);
 
 // helio
 wxDECLARE_EVENT(EVT_HELIO_PROCESSING_COMPLETED, HelioCompletionEvent);
-wxDECLARE_EVENT(EVT_HELIO_PROCESSING_STARTED, SimpleEvent);
+wxDECLARE_EVENT(EVT_HELIO_PROCESSING_STARTED, HelioActionEvent);
 wxDECLARE_EVENT(EVT_HELIO_INPUT_DLG, SimpleEvent);
 // end helio
 wxDECLARE_EVENT(EVT_GCODE_VIEWER_CHANGED, SimpleEvent);
