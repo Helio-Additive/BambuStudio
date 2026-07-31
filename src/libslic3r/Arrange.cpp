@@ -1112,7 +1112,7 @@ static void process_arrangeable(const ArrangePolygon &arrpoly,
     Item& item = outp.back();
     item.rotation(rotation);
     item.translation({offs.x(), offs.y()});
-    item.binId(arrpoly.bed_idx);
+    if (arrpoly.bed_idx >= 0) item.binId(arrpoly.bed_idx);
     item.priority(arrpoly.priority);
     item.itemId(arrpoly.itemid);
     item.extrude_id_filament_types = arrpoly.extrude_id_filament_types;
