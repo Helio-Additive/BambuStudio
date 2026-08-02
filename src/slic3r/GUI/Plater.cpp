@@ -6775,7 +6775,7 @@ public:
     void on_helio_processing_complete(HelioCompletionEvent &);
     void on_helio_processing_start(HelioActionEvent &);
     void on_helio_input_dlg(SimpleEvent &);
-    void on_helio_process();
+    void on_helio_process(const PartPlate* expected_plate);
     void on_action_publish(wxCommandEvent &evt);
     void on_action_print_plate(SimpleEvent&);
     void on_action_print_all(SimpleEvent&);
@@ -14823,8 +14823,20 @@ void Plater::priv::on_helio_processing_start(HelioActionEvent &a)
 }
 
 //BBS: GUI refactor: slice with helio
-void Plater::priv::on_helio_process()
+void Plater::priv::on_helio_process(const PartPlate* expected_plate)
 {
+    auto helio_launch_allowed = [this, expected_plate]() {
+        const PartPlate* current_plate = partplate_list.get_curr_plate();
+        return current_plate != nullptr && current_plate == expected_plate &&
+               current_plate->is_slice_result_valid() && current_plate->can_slice() &&
+               !q->only_gcode_mode() && !q->using_exported_file() &&
+               !sidebar->has_broken_mixed_filament(current_plate) &&
+               !q->is_background_process_slicing();
+    };
+
+    if (!helio_launch_allowed())
+        return;
+
     std::string helio_api_url = Slic3r::HelioQuery::get_helio_api_url();
     std::string helio_api_key = Slic3r::HelioQuery::get_helio_pat();
 
@@ -14874,6 +14886,9 @@ void Plater::priv::on_helio_process()
 
         while (dlg.ShowModal() == wxID_OK)
         {
+            if (!helio_launch_allowed())
+                return;
+
             if (partplate_list.get_curr_plate()->empty()) return;
             GCodeProcessorResult* g_result = background_process.get_current_gcode_result();
 
@@ -14957,6 +14972,12 @@ void Plater::priv::on_helio_process()
 
 void Plater::priv::on_helio_input_dlg(SimpleEvent &a)
 {
+    const PartPlate* current_plate = partplate_list.get_curr_plate();
+    if (current_plate == nullptr || !current_plate->is_slice_result_valid() ||
+        !current_plate->can_slice() || q->only_gcode_mode() || q->using_exported_file() ||
+        sidebar->has_broken_mixed_filament(current_plate) || q->is_background_process_slicing())
+        return;
+
     std::string helio_api_key = Slic3r::HelioQuery::get_helio_pat();
 
     if (helio_api_key.empty()) {
@@ -14990,7 +15011,7 @@ void Plater::priv::on_helio_input_dlg(SimpleEvent &a)
     else {
         const SupportDataAvailability availability = HelioQuery::supported_data_view().availability;
         if (availability == SupportDataAvailability::Usable) {
-            on_helio_process();
+            on_helio_process(current_plate);
         }
         else if (availability == SupportDataAvailability::Synchronizing) {
             wxGetApp().request_helio_supported_data();
@@ -15016,7 +15037,7 @@ void Plater::priv::on_helio_input_dlg(SimpleEvent &a)
                 HelioSyncProgressDialog sync_dlg(static_cast<wxWindow*>(wxGetApp().mainframe), true);
                 sync_dlg.ShowModal();
                 if (HelioQuery::supported_data_view().availability == SupportDataAvailability::Usable) {
-                    on_helio_process();
+                    on_helio_process(current_plate);
                     return;
                 }
             }

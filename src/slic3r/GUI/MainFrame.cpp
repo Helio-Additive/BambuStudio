@@ -2600,7 +2600,8 @@ void MainFrame::update_helio_button_state()
     const PartPlate* current_plate = m_plater != nullptr ? m_plater->get_partplate_list().get_curr_plate() : nullptr;
     const bool helio_enabled = m_plater != nullptr && !m_plater->only_gcode_mode() &&
                                !m_plater->using_exported_file() && current_plate != nullptr &&
-                               current_plate->is_slice_result_valid() &&
+                               current_plate->is_slice_result_valid() && current_plate->can_slice() &&
+                               !m_plater->sidebar().has_broken_mixed_filament() &&
                                !m_plater->is_background_process_slicing();
     expand_program_holder->updateExpandButtonBitmap(expand_helio_id, helio_enabled ? "helio_icon" : "helio_icon_disable");
     expand_program_holder->EnableExpandButton(expand_helio_id, helio_enabled);
