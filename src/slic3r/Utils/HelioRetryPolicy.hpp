@@ -36,9 +36,9 @@ bool helio_has_exact_backend_auth_error(const nlohmann::json& response);
 // unless one of their messages has an ordinary transient marker.
 HelioRetryKind helio_classify_graphql_response(unsigned status, const nlohmann::json& response);
 
-// Parses and classifies a GraphQL response body. A malformed HTTP 200 response
-// is terminal; actual HTTP authentication/authorization/not-found statuses are
-// also terminal regardless of their response body.
+// Parses and classifies a GraphQL response body. Invalid JSON is terminal, while
+// a parsed HTTP 200 response with a malformed errors member is transient. Actual
+// HTTP authentication/authorization/not-found statuses are terminal.
 HelioRetryKind helio_classify_graphql_response(unsigned status, const std::string& body);
 
 // Classifies a completed HTTP or transport failure. Only status 0,

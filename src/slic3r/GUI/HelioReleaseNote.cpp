@@ -3799,7 +3799,7 @@ HelioSimulationResultsDialog::HelioSimulationResultsDialog(wxWindow *parent,
     m_button_enhance->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     wxStaticBitmap* save_icon = new wxStaticBitmap(this, wxID_ANY, create_scaled_bitmap("save", this, 24), wxDefaultPosition,
         wxSize(FromDIP(24), FromDIP(24)));
-    save_icon->SetToolTip(_L("Save the simulated gcode locally"));
+    save_icon->SetToolTip(_L("Save the simulated sliced 3MF locally"));
     save_icon->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
     save_icon->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
     save_icon->Bind(wxEVT_LEFT_DOWN, [](wxMouseEvent& e) {

@@ -129,7 +129,7 @@ SupportDataPageResult parse_support_data_page(SupportDataCatalogKind        kind
     const std::string payload_name = catalog_name(kind);
     if (!parsed.contains("data") || !parsed["data"].is_object() ||
         !parsed["data"].contains(payload_name) || !parsed["data"][payload_name].is_object()) {
-        return incomplete_page(response, "Helio support-data response is missing data." + payload_name);
+        return incomplete_page(response, "Helio support-data response is missing data payload: " + payload_name);
     }
 
     const json& payload = parsed["data"][payload_name];
