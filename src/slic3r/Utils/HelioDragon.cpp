@@ -2964,7 +2964,8 @@ void HelioBackgroundProcess::save_downloaded_gcode_and_load_preview(std::string 
                     response_error  = (boost::format("status: %1%, error: %2%") % status % body).str();
                 })
                 .timeout_connect(20)
-                .timeout_max(100)
+                // Inactivity/low-speed guard for slow large downloads, not a total transfer deadline.
+                .low_speed_timeout(1, 180)
                 .on_progress([this, action_generation](Http::Progress, bool& cancel) {
                     cancel = was_canceled() || !is_action_current(action_generation);
                 })

@@ -130,6 +130,7 @@ struct Http::priv
 
 	void set_timeout_connect(long timeout);
     void set_timeout_max(long timeout);
+	void set_low_speed_timeout(long bytes_per_second, long timeout);
 	void form_add_file(const char *name, const fs::path &path, const char* filename);
 	/* mime */
 	void mime_form_add_text(const char* name, const char* value);
@@ -285,6 +286,12 @@ void Http::priv::set_timeout_connect(long timeout)
 void Http::priv::set_timeout_max(long timeout)
 {
     ::curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+}
+
+void Http::priv::set_low_speed_timeout(long bytes_per_second, long timeout)
+{
+    ::curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, bytes_per_second);
+    ::curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, timeout);
 }
 
 void Http::priv::form_add_file(const char *name, const fs::path &path, const char* filename)
@@ -500,6 +507,16 @@ Http& Http::timeout_max(long timeout)
 {
     if (timeout < 1) { timeout = priv::DEFAULT_TIMEOUT_MAX; }
     if (p) { p->set_timeout_max(timeout); }
+    return *this;
+}
+
+Http& Http::low_speed_timeout(long bytes_per_second, long timeout)
+{
+    if (bytes_per_second < 1 || timeout < 1) {
+        bytes_per_second = 0;
+        timeout = 0;
+    }
+    if (p) { p->set_low_speed_timeout(bytes_per_second, timeout); }
     return *this;
 }
 
