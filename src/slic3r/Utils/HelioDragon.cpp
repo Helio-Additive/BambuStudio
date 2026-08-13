@@ -15,6 +15,8 @@
 #include "libslic3r/PrintBase.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/LocalesUtils.hpp"
+#include "libslic3r/Utils.hpp"
+#include <boost/filesystem.hpp>
 #include <boost/log/trivial.hpp>
 #include "../GUI/PartPlate.hpp"
 #include "../GUI/GUI_App.hpp"
@@ -27,6 +29,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <sstream>
@@ -47,6 +50,9 @@ constexpr int HELIO_CREATE_MAX_ATTEMPTS = 4;
 constexpr int HELIO_UPLOAD_MAX_ATTEMPTS = 4;
 constexpr int HELIO_MAX_POLL_BACKOFF_SECONDS = 30;
 constexpr int HELIO_MAX_TRANSIENT_POLL_FAILURES = 60;
+constexpr int HELIO_DOWNLOAD_MAX_ATTEMPTS = 7;
+constexpr int HELIO_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS = 180;
+constexpr size_t HELIO_DOWNLOAD_PROGRESS_STEP_BYTES = 16 * 1024 * 1024;
 
 struct HelioPrintPriorityCacheState
 {
@@ -2939,97 +2945,177 @@ void HelioBackgroundProcess::save_downloaded_gcode_and_load_preview(std::string 
                                                                     std::unique_ptr<GUI::NotificationManager>& notification_manager,
                                                                     HelioQuery::RatingData                     rating_data)
 {
-    auto        http            = Http::get(file_download_url);
-    unsigned    response_status = 0;
-    std::string downloaded_gcode;
-    std::string response_error;
     const std::uint64_t action_generation = helio_worker_generation;
+    const std::string partial_gcode_path = helio_gcode_path + "." + std::to_string(action_generation) + ".part";
+    unsigned response_status = 0;
+    std::string response_error;
 
-    int number_of_attempts                  = 0;
-    int max_attempts                        = 7;
+    int number_of_attempts = 0;
     int number_of_seconds_till_next_attempt = 0;
 
+    auto post_status = [this, action_generation](int progress, const std::string& message) {
+        if (was_canceled() || !is_action_current(action_generation))
+            return;
+        Slic3r::PrintBase::SlicingStatus status(progress, message);
+        status.is_helio = true;
+        Slic3r::SlicingStatusEvent* evt = new Slic3r::SlicingStatusEvent(GUI::EVT_SLICING_UPDATE, 0, status);
+        evt->generation = action_generation;
+        wxQueueEvent(GUI::wxGetApp().plater(), evt);
+    };
+
+    auto remove_partial_file = [&partial_gcode_path]() {
+        boost::system::error_code ec;
+        boost::filesystem::remove(partial_gcode_path, ec);
+        if (ec)
+            BOOST_LOG_TRIVIAL(warning) << "Could not remove partial Helio GCode download: " << ec.message();
+    };
+
+    remove_partial_file();
     while (response_status != 200 && !was_canceled()) {
         if (number_of_seconds_till_next_attempt <= 0) {
-            http.on_complete([&downloaded_gcode, &response_error, &response_status](std::string body, unsigned status) {
+            response_status = 0;
+            response_error.clear();
+            bool inactivity_timeout = false;
+            bool local_file_error = false;
+            size_t last_downloaded = 0;
+            size_t last_reported_bytes = 0;
+            int last_reported_progress = -1;
+            auto last_new_byte_at = std::chrono::steady_clock::now();
+            const auto download_started_at = last_new_byte_at;
+
+            try {
+                auto http = Http::get(file_download_url);
+                http.save_response_to_file(partial_gcode_path)
+                .on_complete([&response_error, &response_status](std::string, unsigned status) {
                     response_status = status;
-                    if (status == 200) {
-                        downloaded_gcode = body;
-                    } else {
-                        response_error = (boost::format("status: %1%, error: %2%") % status % body).str();
-                    }
+                    if (status != 200)
+                        response_error = (boost::format("Unexpected HTTP status %1%") % status).str();
                 })
-                .on_error([&response_error, &response_status](std::string body, std::string error, unsigned status) {
+                .on_error([&response_error, &response_status, &local_file_error](std::string, std::string error, unsigned status) {
                     response_status = status;
-                    response_error  = (boost::format("status: %1%, error: %2%") % status % body).str();
+                    response_error = (boost::format("status: %1%, error: %2%") % status % error).str();
+                    local_file_error = error.find("HTTP response file") != std::string::npos ||
+                                       error.find("HTTP body data size exceeded") != std::string::npos;
                 })
                 .timeout_connect(20)
-                // Inactivity/low-speed guard for slow large downloads, not a total transfer deadline.
-                .low_speed_timeout(1, 180)
-                .on_progress([this, action_generation](Http::Progress, bool& cancel) {
+                .on_progress([this, action_generation, &inactivity_timeout, &last_downloaded, &last_reported_bytes,
+                              &last_reported_progress, &last_new_byte_at, &post_status](Http::Progress progress, bool& cancel) {
                     cancel = was_canceled() || !is_action_current(action_generation);
+                    if (cancel)
+                        return;
+
+                    const auto now = std::chrono::steady_clock::now();
+                    if (progress.dlnow != last_downloaded) {
+                        last_downloaded = progress.dlnow;
+                        last_new_byte_at = now;
+                    } else if (now - last_new_byte_at >= std::chrono::seconds(HELIO_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS)) {
+                        inactivity_timeout = true;
+                        cancel = true;
+                        return;
+                    }
+
+                    if (progress.dltotal > 0) {
+                        const int download_percent = std::min(100, static_cast<int>(100.0 * progress.dlnow / progress.dltotal));
+                        const int overall_progress = 80 + std::min(14, static_cast<int>(15.0 * progress.dlnow / progress.dltotal));
+                        if (overall_progress > last_reported_progress) {
+                            last_reported_progress = overall_progress;
+                            post_status(overall_progress,
+                                        (boost::format("Helio: Downloading GCode (%1%%%)") % download_percent).str());
+                        }
+                    } else if (progress.dlnow >= last_reported_bytes + HELIO_DOWNLOAD_PROGRESS_STEP_BYTES) {
+                        last_reported_bytes = progress.dlnow;
+                        post_status(80, (boost::format("Helio: Downloading GCode (%1% MiB received)") %
+                                         (progress.dlnow / (1024 * 1024))).str());
+                    }
                 })
                 .perform_sync();
+            } catch (const std::exception& e) {
+                local_file_error = true;
+                response_error = e.what();
+            }
 
             if (was_canceled() || !is_action_current(action_generation)) {
+                remove_partial_file();
                 return;
             }
 
-            if (response_status != 200) {
-                number_of_attempts++;
-                Slic3r::PrintBase::SlicingStatus status = Slic3r::PrintBase::SlicingStatus(
-                    80, (boost::format("Helio: Could not download file. Attempts left %1%") % (max_attempts - number_of_attempts)).str());
-                status.is_helio = true;
-                Slic3r::SlicingStatusEvent* evt = new Slic3r::SlicingStatusEvent(GUI::EVT_SLICING_UPDATE, 0, status);
-                evt->generation = helio_worker_generation;
-                wxQueueEvent(GUI::wxGetApp().plater(), evt);
-                number_of_seconds_till_next_attempt = number_of_attempts * 5;
-            }
+            if (inactivity_timeout)
+                response_error = (boost::format("No download progress for %1% seconds") %
+                                  HELIO_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS).str();
+            else if (response_status == 0 && response_error.empty())
+                response_error = "Download ended without an HTTP response";
 
             if (response_status == 200) {
-                response_error = "";
+                boost::system::error_code size_error;
+                const boost::uintmax_t downloaded_size = boost::filesystem::file_size(partial_gcode_path, size_error);
+                if (size_error || downloaded_size == 0) {
+                    response_status = 0;
+                    response_error = size_error ?
+                        (boost::format("Could not inspect downloaded file: %1%") % size_error.message()).str() :
+                        "Downloaded file was empty";
+                    local_file_error = true;
+                } else {
+                    std::error_code rename_error;
+                    bool stale_before_publish = false;
+                    {
+                        // Serialize the generation check with begin_action()/stop() so a stale worker
+                        // cannot publish over the current action's final GCode.
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        stale_before_publish = action_generation != m_action_generation;
+                        if (!stale_before_publish)
+                            rename_error = Slic3r::rename_file(partial_gcode_path, helio_gcode_path);
+                    }
+                    if (stale_before_publish) {
+                        remove_partial_file();
+                        return;
+                    }
+                    if (rename_error) {
+                        response_status = 0;
+                        response_error = (boost::format("Could not finalize downloaded file: %1%") % rename_error.message()).str();
+                        local_file_error = true;
+                    } else {
+                        const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now() - download_started_at).count();
+                        BOOST_LOG_TRIVIAL(info) << "Helio GCode download completed: bytes=" << downloaded_size
+                                                << ", elapsed_seconds=" << elapsed_seconds;
+                        response_error.clear();
+                        break;
+                    }
+                }
+            }
+
+            remove_partial_file();
+            number_of_attempts++;
+
+            if (local_file_error || number_of_attempts >= HELIO_DOWNLOAD_MAX_ATTEMPTS) {
+                if (!local_file_error)
+                    response_error = "Max download attempts reached. Last error: " + response_error;
                 break;
             }
 
-            else if (number_of_attempts >= max_attempts) {
-                response_error = "Max attempts reached but file was not found";
-                break;
-            }
-
+            post_status(80, (boost::format("Helio: Could not download file. Attempts left %1%") %
+                             (HELIO_DOWNLOAD_MAX_ATTEMPTS - number_of_attempts)).str());
+            number_of_seconds_till_next_attempt = number_of_attempts * 5;
         } else {
-            Slic3r::PrintBase::SlicingStatus status = Slic3r::PrintBase::SlicingStatus(80,
-                                                                                       (boost::format("Helio: Next attemp in %1% seconds") %
-                                                                                        number_of_seconds_till_next_attempt)
-                                                                                           .str());
-            status.is_helio = true;
-            Slic3r::SlicingStatusEvent*      evt    = new Slic3r::SlicingStatusEvent(GUI::EVT_SLICING_UPDATE, 0, status);
-            evt->generation = helio_worker_generation;
-            wxQueueEvent(GUI::wxGetApp().plater(), evt);
+            post_status(80, (boost::format("Helio: Next attempt in %1% seconds") %
+                             number_of_seconds_till_next_attempt).str());
         }
-            if (!helio_sleep_for_retry_or_cancel(1, [this]() { return was_canceled(); })) {
-                break;
-            }
-            number_of_seconds_till_next_attempt--;
+
+        if (!helio_sleep_for_retry_or_cancel(1, [this]() { return was_canceled(); }))
+            break;
+        number_of_seconds_till_next_attempt--;
     }
 
     if (was_canceled() || !is_action_current(action_generation)) {
+        remove_partial_file();
         return;
     }
 
     if (response_error.empty()) {
-        wxFile file(wxString::FromUTF8(helio_gcode_path), wxFile::write);
-        if (file.IsOpened()) {
-            file.Write(downloaded_gcode.data(), downloaded_gcode.size());
-            file.Close();
-        }
-
-        Slic3r::PrintBase::SlicingStatus status = Slic3r::PrintBase::SlicingStatus(100, _u8L("Helio: GCode downloaded successfully"));
-        status.is_helio = true;
-        Slic3r::SlicingStatusEvent*      evt    = new Slic3r::SlicingStatusEvent(GUI::EVT_SLICING_UPDATE, 0, status);
-        evt->generation = helio_worker_generation;
-        wxQueueEvent(GUI::wxGetApp().plater(), evt);
+        post_status(95, _u8L("Helio: GCode downloaded, loading preview"));
         HelioBackgroundProcess::load_helio_file_to_viwer(helio_gcode_path, tmp_path, rating_data);
     } else {
+        remove_partial_file();
         set_state(STATE_CANCELED);
 
         std::string error;
@@ -3053,7 +3139,8 @@ void HelioBackgroundProcess::save_downloaded_gcode_and_load_preview(std::string 
 
 void HelioBackgroundProcess::load_helio_file_to_viwer(std::string file_path, std::string tmp_path, HelioQuery::RatingData rating_data)
 {
-    if (!is_action_current(helio_worker_generation)) {
+    const std::uint64_t action_generation = helio_worker_generation;
+    if (was_canceled() || !is_action_current(action_generation)) {
         return;
     }
     const Vec3d origin = GUI::wxGetApp().plater()->get_partplate_list().get_current_plate_origin();
@@ -3063,7 +3150,35 @@ void HelioBackgroundProcess::load_helio_file_to_viwer(std::string file_path, std
     if (old_result && old_result->nozzle_group_result) {
         m_gcode_processor.initialize_from_context(old_result->nozzle_group_result);
     }
-    m_gcode_processor.process_file(file_path);
+    const auto preview_started_at = std::chrono::steady_clock::now();
+    try {
+        m_gcode_processor.process_file(file_path, [this, action_generation]() {
+            if (was_canceled() || !is_action_current(action_generation))
+                throw Slic3r::CanceledException();
+        });
+    } catch (const Slic3r::CanceledException&) {
+        if (is_action_current(action_generation))
+            set_state(STATE_CANCELED);
+        return;
+    } catch (const std::exception& e) {
+        if (!is_action_current(action_generation))
+            return;
+        set_state(STATE_CANCELED);
+        BOOST_LOG_TRIVIAL(error) << "Helio GCode preview loading failed: " << e.what();
+        Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(
+            GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, "", "", false,
+            _u8L("Helio: Failed to load GCode preview") + "\n" + e.what());
+        evt->generation = action_generation;
+        wxQueueEvent(GUI::wxGetApp().plater(), evt);
+        return;
+    }
+
+    if (was_canceled() || !is_action_current(action_generation))
+        return;
+
+    BOOST_LOG_TRIVIAL(info) << "Helio GCode preview loaded: elapsed_seconds="
+                            << std::chrono::duration_cast<std::chrono::seconds>(
+                                   std::chrono::steady_clock::now() - preview_started_at).count();
 
     auto res       = &m_gcode_processor.result();
     m_gcode_result = res;
@@ -3074,8 +3189,14 @@ void HelioBackgroundProcess::load_helio_file_to_viwer(std::string file_path, std
 
     set_state(STATE_FINISHED);
 
+    Slic3r::PrintBase::SlicingStatus status(100, _u8L("Helio: GCode preview loaded"));
+    status.is_helio = true;
+    Slic3r::SlicingStatusEvent* status_evt = new Slic3r::SlicingStatusEvent(GUI::EVT_SLICING_UPDATE, 0, status);
+    status_evt->generation = action_generation;
+    wxQueueEvent(GUI::wxGetApp().plater(), status_evt);
+
     Slic3r::HelioCompletionEvent* evt = new Slic3r::HelioCompletionEvent(GUI::EVT_HELIO_PROCESSING_COMPLETED, 0, file_path, tmp_path, true, "", rating_data.action, rating_data.qualityMeanImprovement, rating_data.qualityStdImprovement);
-    evt->generation = helio_worker_generation;
+    evt->generation = action_generation;
     wxQueueEvent(GUI::wxGetApp().plater(), evt);
 }
 

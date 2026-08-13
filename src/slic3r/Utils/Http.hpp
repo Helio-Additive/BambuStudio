@@ -101,12 +101,12 @@ public:
 	Http& timeout_connect(long timeout);
     // Sets a maximum total request timeout in seconds
     Http& timeout_max(long timeout);
-	// Aborts a transfer when its speed remains below the given bytes per second for the given seconds.
-	// Non-positive values disable the low-speed timeout.
-	Http& low_speed_timeout(long bytes_per_second, long timeout);
 	// Sets a maximum size of the data that can be received.
-	// A value of zero sets the default limit, which is is 5MB.
+	// A value of zero sets the default limit, which is 1 GiB.
 	Http& size_limit(size_t sizeLimit);
+	// Streams the response body directly to a file instead of retaining it in memory.
+	// Completion and error callbacks receive an empty response body in this mode.
+	Http& save_response_to_file(const boost::filesystem::path &path);
 	// Sets a HTTP header field.
 	Http& header(std::string name, const std::string &value);
 	// Removes a header field.
