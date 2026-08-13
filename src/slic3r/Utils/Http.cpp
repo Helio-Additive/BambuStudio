@@ -102,6 +102,10 @@ struct Http::priv
 	::curl_slist *headerlist;
 	// Used for reading the body
 	std::string buffer;
+	std::unique_ptr<fs::ofstream> response_file;
+	size_t response_size;
+	bool size_limit_exceeded;
+	std::string response_write_error;
 	// Used for storing file streams added as multipart form parts
 	// Using a deque here because unlike vector it doesn't ivalidate pointers on insertion
 	std::deque<fs::ifstream> form_files;
@@ -130,6 +134,7 @@ struct Http::priv
 
 	void set_timeout_connect(long timeout);
     void set_timeout_max(long timeout);
+	void set_response_file(const fs::path &path);
 	void form_add_file(const char *name, const fs::path &path, const char* filename);
 	/* mime */
 	void mime_form_add_text(const char* name, const char* value);
@@ -158,6 +163,8 @@ Http::priv::priv(const std::string &url)
 	, form_end(nullptr)
 	, mime(nullptr)
 	, headerlist(nullptr)
+	, response_size(0)
+	, size_limit_exceeded(false)
 	, error_buffer(CURL_ERROR_SIZE + 1, '\0')
 	, limit(0)
 	, cancel(false)
@@ -216,12 +223,23 @@ size_t Http::priv::writecb(void *data, size_t size, size_t nmemb, void *userp)
 	const size_t realsize = size * nmemb;
 
 	const size_t limit = self->limit > 0 ? self->limit : DEFAULT_SIZE_LIMIT;
-	if (self->buffer.size() + realsize > limit) {
+	const size_t received_size = self->response_file ? self->response_size : self->buffer.size();
+	if (received_size > limit || realsize > limit - received_size) {
+		self->size_limit_exceeded = true;
 		// This makes curl_easy_perform return CURLE_WRITE_ERROR
 		return 0;
 	}
 
-	self->buffer.append(cdata, realsize);
+	if (self->response_file) {
+		self->response_file->write(cdata, static_cast<std::streamsize>(realsize));
+		if (!*self->response_file) {
+			self->response_write_error = "Error writing HTTP response to file";
+			return 0;
+		}
+		self->response_size += realsize;
+	} else {
+		self->buffer.append(cdata, realsize);
+	}
 
 	return realsize;
 }
@@ -285,6 +303,13 @@ void Http::priv::set_timeout_connect(long timeout)
 void Http::priv::set_timeout_max(long timeout)
 {
     ::curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+}
+
+void Http::priv::set_response_file(const fs::path &path)
+{
+	response_file = std::make_unique<fs::ofstream>(path, std::ios::out | std::ios::binary | std::ios::trunc);
+	if (!response_file->is_open())
+		throw Slic3r::RuntimeError("Could not open HTTP response file for writing");
 }
 
 void Http::priv::form_add_file(const char *name, const fs::path &path, const char* filename)
@@ -384,11 +409,16 @@ std::string Http::priv::curl_error(CURLcode curlcode)
 
 std::string Http::priv::body_size_error()
 {
-	return (boost::format("HTTP body data size exceeded limit (%1% bytes)") % limit).str();
+	const size_t effective_limit = limit > 0 ? limit : DEFAULT_SIZE_LIMIT;
+	return (boost::format("HTTP body data size exceeded limit (%1% bytes)") % effective_limit).str();
 }
 
 void Http::priv::http_perform()
 {
+	response_size = 0;
+	size_limit_exceeded = false;
+	response_write_error.clear();
+
 	::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	::curl_easy_setopt(curl, CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
 	::curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecb);
@@ -430,6 +460,20 @@ void Http::priv::http_perform()
 	}
 
 	CURLcode res = ::curl_easy_perform(curl);
+	if (response_file) {
+		response_file->flush();
+		if (!*response_file && response_write_error.empty())
+			response_write_error = "Error flushing HTTP response file";
+		response_file->close();
+		if (response_file->fail() && response_write_error.empty())
+			response_write_error = "Error closing HTTP response file";
+	}
+
+	if (!response_write_error.empty()) {
+		if (errorfn) { errorfn(std::string(), response_write_error, 0); }
+		return;
+	}
+
 	if (res != CURLE_OK) {
 		if (res == CURLE_ABORTED_BY_CALLBACK) {
 			if (cancel) {
@@ -442,7 +486,7 @@ void Http::priv::http_perform()
 				if (errorfn) { errorfn(std::move(buffer), "Error reading file for file upload", 0); }
 			}
 		}
-		else if (res == CURLE_WRITE_ERROR) {
+		else if (res == CURLE_WRITE_ERROR && size_limit_exceeded) {
 			if (errorfn) { errorfn(std::move(buffer), body_size_error(), 0); }
 		} else {
 			if (errorfn) { errorfn(std::move(buffer), curl_error(res), 0); }
@@ -506,6 +550,12 @@ Http& Http::timeout_max(long timeout)
 Http& Http::size_limit(size_t sizeLimit)
 {
 	if (p) { p->limit = sizeLimit; }
+	return *this;
+}
+
+Http& Http::save_response_to_file(const fs::path &path)
+{
+	if (p) { p->set_response_file(path); }
 	return *this;
 }
 
