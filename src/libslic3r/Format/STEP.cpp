@@ -24,6 +24,8 @@
 
 #include "STEPCAFControl_Reader.hxx"
 #include "BRepMesh_IncrementalMesh.hxx"
+#include "Poly_Triangulation.hxx"
+#include <TDocStd_Document.hxx>
 #include "Interface_Static.hxx"
 #include "XCAFDoc_DocumentTool.hxx"
 #include "XCAFDoc_ShapeTool.hxx"
@@ -40,7 +42,12 @@
 #include "TopExp_Explorer.hxx"
 #include "BRep_Tool.hxx"
 #include "BRepTools.hxx"
+#if defined(__has_include)
+#if __has_include(<IMeshTools_Parameters.hxx>)
 #include <IMeshTools_Parameters.hxx>
+#define SLIC3R_HAS_IMESHTOOLS_PARAMETERS 1
+#endif
+#endif
 
 
 namespace Slic3r {
@@ -906,12 +913,16 @@ unsigned int Step::get_triangle_num(double linear_defletion, double angle_deflet
     try {
         Handle(StepProgressIncdicator) progress = new StepProgressIncdicator(m_stop_mesh);
         clean_mesh_data();
-        IMeshTools_Parameters param;
-        param.Deflection = linear_defletion;
-        param.Angle = angle_defletion;
-        param.InParallel = true;
         for (int i = 0; i < m_name_solids.size(); ++i) {
+#if defined(SLIC3R_HAS_IMESHTOOLS_PARAMETERS)
+            IMeshTools_Parameters param;
+            param.Deflection = linear_defletion;
+            param.Angle = angle_defletion;
+            param.InParallel = true;
             BRepMesh_IncrementalMesh mesh(m_name_solids[i].solid, param, progress->Start());
+#else
+            BRepMesh_IncrementalMesh mesh(m_name_solids[i].solid, linear_defletion, false, angle_defletion, true);
+#endif
             for (TopExp_Explorer anExpSF(m_name_solids[i].solid, TopAbs_FACE); anExpSF.More(); anExpSF.Next()) {
                 TopLoc_Location aLoc;
                 Handle(Poly_Triangulation) aTriangulation = BRep_Tool::Triangulation(TopoDS::Face(anExpSF.Current()), aLoc);
