@@ -66,6 +66,7 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/SLAPrint.hpp"
 #include "GCodeViewer.hpp"
+#include "IMSlider.hpp"
 
 #include "wxExtensions.hpp"
 
@@ -3305,8 +3306,11 @@ std::vector<double> GLCanvas3D::get_gcode_layers_zs() const
 
 int GLCanvas3D::get_gcode_layers_count() const
 {
-    const auto& t_gcode_viewer = get_gcode_viewer();
-    return t_gcode_viewer.get_layers_zs().size();
+    auto& t_gcode_viewer = get_gcode_viewer();
+    const auto* layers_slider = t_gcode_viewer.get_layers_slider();
+    // Rendering may revisit a Z height (e.g. multi-material wipe-tower paths).
+    // Helio's range must use the displayed layer numbers, not render records.
+    return layers_slider ? static_cast<int>(layers_slider->GetLayerCount()) : 0;
 }
 
 std::vector<double> GLCanvas3D::get_volumes_print_zs(bool active_only) const

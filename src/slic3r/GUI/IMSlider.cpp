@@ -1517,6 +1517,29 @@ bool IMSlider::is_wipe_tower_layer(int tick) const
     return false;
 }
 
+size_t IMSlider::get_layer_number(int value, LabelType label_type) const
+{
+    if (label_type == ltEstimatedTime && m_layers_times.empty()) return size_t(-1);
+    double layer_print_z = m_values[is_wipe_tower_layer(value) ? std::max<int>(value - 1, 0) : value];
+    auto   it            = std::lower_bound(m_layers_values.begin(), m_layers_values.end(), layer_print_z - epsilon());
+    if (it == m_layers_values.end()) {
+        it = std::lower_bound(m_values.begin(), m_values.end(), layer_print_z - epsilon());
+        if (it == m_values.end()) return size_t(-1);
+        return size_t(value);
+    }
+    return size_t(it - m_layers_values.begin());
+}
+
+size_t IMSlider::GetLayerCount() const
+{
+    if (m_values.empty()) return 0;
+    // Sequential prints retain separate layers for objects sharing a Z height.
+    if (m_draw_mode == dmSequentialFffPrint || m_draw_mode == dmSequentialGCodeView || !m_is_wipe_tower)
+        return m_values.size();
+    const size_t layer_number = get_layer_number(static_cast<int>(m_values.size() - 1), ltHeightWithLayer);
+    return layer_number == size_t(-1) ? 0 : layer_number + 1;
+}
+
 std::string IMSlider::get_label(int tick, LabelType label_type)
 {
     const size_t value = tick;
@@ -1525,18 +1548,6 @@ std::string IMSlider::get_label(int tick, LabelType label_type)
         std::to_string(value);
     }
     if (value >= m_values.size()) return "error";
-
-    auto get_layer_number = [this](int value, LabelType label_type) {
-        if (label_type == ltEstimatedTime && m_layers_times.empty()) return size_t(-1);
-        double layer_print_z = m_values[is_wipe_tower_layer(value) ? std::max<int>(value - 1, 0) : value];
-        auto   it            = std::lower_bound(m_layers_values.begin(), m_layers_values.end(), layer_print_z - epsilon());
-        if (it == m_layers_values.end()) {
-            it = std::lower_bound(m_values.begin(), m_values.end(), layer_print_z - epsilon());
-            if (it == m_values.end()) return size_t(-1);
-            return size_t(value);
-        }
-        return size_t(it - m_layers_values.begin());
-    };
 
     if (m_draw_mode == dmSequentialGCodeView) {
         return std::to_string(tick);

@@ -63,6 +63,9 @@ public:
 
     int    GetMinValue() const { return m_min_value; }
     int    GetMaxValue() const { return m_max_value; }
+    // Full print range in the same layer numbering used by the preview labels.
+    // Independent of the currently selected slider range.
+    size_t GetLayerCount() const;
     double GetMinValueD() { return m_values.empty() ? 0. : m_values[m_min_value]; }
     double GetMaxValueD() { return m_values.empty() ? 0. : m_values[m_max_value]; }
     int    GetLowerValue() const { return m_lower_value; }
@@ -157,6 +160,7 @@ protected:
     bool is_wipe_tower_layer(int tick) const;
 
 private:
+    size_t get_layer_number(int value, LabelType label_type) const;
     std::string get_label(int tick, LabelType label_type = ltHeightWithLayer);
     double get_double_value(const SelectedSlider& selection);
     int    get_tick_from_value(double value, bool force_lower_bound = false);
