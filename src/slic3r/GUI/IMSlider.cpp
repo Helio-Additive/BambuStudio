@@ -1530,13 +1530,17 @@ size_t IMSlider::get_layer_number(int value, LabelType label_type) const
     return size_t(it - m_layers_values.begin());
 }
 
-size_t IMSlider::GetLayerCount() const
+size_t IMSlider::GetMaxLayerNumber() const
 {
-    if (m_values.empty()) return 0;
+    const int max_index = GetMaxValue();
+    if (max_index < 0 || static_cast<size_t>(max_index) >= m_values.size()) return 0;
+    // Sequential G-code labels display the index directly.
+    if (m_draw_mode == dmSequentialGCodeView)
+        return static_cast<size_t>(max_index);
     // Sequential prints retain separate layers for objects sharing a Z height.
-    if (m_draw_mode == dmSequentialFffPrint || m_draw_mode == dmSequentialGCodeView || !m_is_wipe_tower)
-        return m_values.size();
-    const size_t layer_number = get_layer_number(static_cast<int>(m_values.size() - 1), ltHeightWithLayer);
+    if (m_draw_mode == dmSequentialFffPrint || !m_is_wipe_tower)
+        return static_cast<size_t>(max_index) + 1;
+    const size_t layer_number = get_layer_number(max_index, ltHeightWithLayer);
     return layer_number == size_t(-1) ? 0 : layer_number + 1;
 }
 

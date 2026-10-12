@@ -2,6 +2,7 @@
 
 ### Match the Helio optimization layer range to the preview
 
+- Helio reads the right-hand slider's maximum index via `GetMaxValue()` and maps it to the displayed layer number at that position, rather than deriving the index from the render-record array length. Invalid or uninitialized indices return 0.
 - Fixed the Helio optimization upper bound potentially exceeding the preview layer count for multi-material prints. The previous count used render-layer records, which can revisit the same Z height. The default upper bound and input validation now use the preview slider's layer-number mapping.
 - Sequential object printing retains its existing layer sequence instead of merging equal heights across objects. Selecting a smaller preview range does not reduce the full optimization range.
 - Optimization requests still send the layer range entered by the user. This change does not change sliced layer heights or add print layers.

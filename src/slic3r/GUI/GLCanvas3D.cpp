@@ -3310,7 +3310,7 @@ int GLCanvas3D::get_gcode_layers_count() const
     const auto* layers_slider = t_gcode_viewer.get_layers_slider();
     // Rendering may revisit a Z height (e.g. multi-material wipe-tower paths).
     // Helio's range must use the displayed layer numbers, not render records.
-    return layers_slider ? static_cast<int>(layers_slider->GetLayerCount()) : 0;
+    return layers_slider ? static_cast<int>(layers_slider->GetMaxLayerNumber()) : 0;
 }
 
 std::vector<double> GLCanvas3D::get_volumes_print_zs(bool active_only) const

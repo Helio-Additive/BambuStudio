@@ -63,9 +63,9 @@ public:
 
     int    GetMinValue() const { return m_min_value; }
     int    GetMaxValue() const { return m_max_value; }
-    // Full print range in the same layer numbering used by the preview labels.
+    // Layer number displayed at the slider's maximum index.
     // Independent of the currently selected slider range.
-    size_t GetLayerCount() const;
+    size_t GetMaxLayerNumber() const;
     double GetMinValueD() { return m_values.empty() ? 0. : m_values[m_min_value]; }
     double GetMaxValueD() { return m_values.empty() ? 0. : m_values[m_max_value]; }
     int    GetLowerValue() const { return m_lower_value; }
