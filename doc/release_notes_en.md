@@ -1,3 +1,12 @@
+## Unreleased fixes
+
+- Helio optimization ranges now use the local G-code exporter's logical layer count, shared with `total_layer_count`, stored on successful export and cleared on result reset. Missing valid slice results require reslicing; single-layer ranges are 1–1 and multi-layer defaults start at layer 2. Preview records and sliders are no longer used. Scope is local slicing only; Helio backend layer-number conventions remain unverified.
+- Fixed catalog materials being skipped when Bambu Studio aliases are missing, null, or empty: matching now falls back to the catalog name. Synthetic Xioneer VXL111 response records cover this case; the user's live catalog response has not been verified.
+- Helio material matching now removes leading square swatch glyphs (such as `□`, `■`, and `🟧`) and adjacent whitespace from name strings for single-material, multi-material, and token matching. Preset lookup keys, displayed names, menu swatches, and symbols inside names remain unchanged. Menu swatches are separate bitmaps and are not part of name strings.
+- Validation: standalone material-name tests cover 20 normalization cases and decorated-name matching. Full desktop and live Helio matching remain unverified.
+
+---
+
 **New Features**
 1. 3D text tool
 2. Shared data between an object and its copies

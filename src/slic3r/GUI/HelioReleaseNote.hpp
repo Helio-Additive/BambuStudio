@@ -203,6 +203,7 @@ private:
     Button* buy_now_button{nullptr};
     LinkLabel* helio_wiki_link{nullptr};
 
+    unsigned int m_sliced_layer_count{0};
     int current_action{-1}; //0-simulation 1-optimization
     int support_optimization{0}; //-1-no 0-yes
     int remaining_optimization_times{0};

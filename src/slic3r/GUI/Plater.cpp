@@ -133,6 +133,7 @@
 #include "../Utils/PresetUpdater.hpp"
 #include "../Utils/Process.hpp"
 #include "../Utils/HelioDragon.hpp"
+#include "../Utils/HelioMaterialName.hpp"
 #include "RemovableDriveManager.hpp"
 #include "InstanceCheck.hpp"
 #include "NotificationManager.hpp"
@@ -13215,9 +13216,7 @@ static FilamentSupportInfo check_filament_helio_support(const std::string& filam
     }
 
     // Clean up the filament name for matching
-    size_t atPos = filament_preset_name.find('@');
-    std::string target_name = (atPos != std::string::npos) ? filament_preset_name.substr(0, atPos) : filament_preset_name;
-    boost::trim(target_name);
+    std::string target_name = helio_material_name_for_matching(filament_preset_name);
 
     // Find best (longest) match to prefer specific materials over generic ones
     size_t best_match_length = 0;
@@ -13225,7 +13224,8 @@ static FilamentSupportInfo check_filament_helio_support(const std::string& filam
     for (const HelioQuery::SupportedData& pdata : HelioQuery::global_supported_materials) {
         if (pdata.native_name.empty()) continue;
 
-        std::string native_name = pdata.native_name;
+        std::string native_name = helio_material_name_for_matching(pdata.native_name);
+        if (native_name.empty()) continue;
         std::string target_lower = target_name;
 
         boost::algorithm::to_lower(native_name);
@@ -14149,10 +14149,9 @@ int Plater::priv::update_helio_background_process_v2(std::string& printer_id, st
 
         for (HelioQuery::SupportedData pdata : HelioQuery::global_supported_materials) {
             if (!pdata.native_name.empty()) {
-                std::string native_name = pdata.native_name;
-                size_t atPos = used_filament.find('@');
-                std::string target_name = (atPos != std::string::npos) ? used_filament.substr(0, atPos) : used_filament;
-                boost::trim(target_name);
+                std::string native_name = helio_material_name_for_matching(pdata.native_name);
+                if (native_name.empty()) continue;
+                std::string target_name = helio_material_name_for_matching(used_filament);
                 boost::algorithm::to_lower(native_name);
                 boost::algorithm::to_lower(target_name);
 
@@ -14176,9 +14175,7 @@ int Plater::priv::update_helio_background_process_v2(std::string& printer_id, st
 
         // Token-based matching as last resort
         if (!is_supported_by_helio) {
-            size_t atPos = used_filament.find('@');
-            std::string target_name = (atPos != std::string::npos) ? used_filament.substr(0, atPos) : used_filament;
-            boost::trim(target_name);
+            std::string target_name = helio_material_name_for_matching(used_filament);
 
             std::vector<std::string> target_tokens;
             boost::split(target_tokens, target_name, boost::is_any_of(" "), boost::token_compress_on);
@@ -14192,7 +14189,8 @@ int Plater::priv::update_helio_background_process_v2(std::string& printer_id, st
 
             for (HelioQuery::SupportedData pdata : HelioQuery::global_supported_materials) {
                 if (!pdata.native_name.empty()) {
-                    std::string native_name = pdata.native_name;
+                    std::string native_name = helio_material_name_for_matching(pdata.native_name);
+                    if (native_name.empty()) continue;
                     boost::algorithm::to_lower(native_name);
 
                     std::vector<std::string> native_tokens;
@@ -14745,9 +14743,7 @@ int Plater::priv::update_helio_background_process(std::string& printer_id,
 
         // This slot's filament is unsupported — try token-based matching, then dialog
         std::string used_filament = preset_filaments[extruders[i] - 1];
-        size_t atPos = used_filament.find('@');
-        std::string target_name = (atPos != std::string::npos) ? used_filament.substr(0, atPos) : used_filament;
-        boost::trim(target_name);
+        std::string target_name = helio_material_name_for_matching(used_filament);
 
         // Token-based matching
         std::vector<std::string> target_tokens;
@@ -14762,7 +14758,8 @@ int Plater::priv::update_helio_background_process(std::string& printer_id,
 
         for (const HelioQuery::SupportedData& pdata : HelioQuery::global_supported_materials) {
             if (pdata.native_name.empty()) continue;
-            std::string native_name = pdata.native_name;
+            std::string native_name = helio_material_name_for_matching(pdata.native_name);
+            if (native_name.empty()) continue;
             boost::algorithm::to_lower(native_name);
 
             std::vector<std::string> native_tokens;
@@ -23990,6 +23987,14 @@ GLCanvas3D* Plater::get_current_canvas3D(bool exclude_preview)
 
 bool Plater::get_preview_min_max_value_of_option(int index, float &_min, float &_max) {
     return p->get_preview_min_max_value_of_option(index,_min,_max);
+}
+
+unsigned int Plater::get_sliced_layers_count() const
+{
+    auto* plate = p->partplate_list.get_curr_plate();
+    if (!plate || !plate->is_slice_result_valid()) return 0;
+    const auto* result = plate->get_gcode_result();
+    return result ? result->sliced_layer_count : 0;
 }
 
 int Plater::get_gcode_layers_count()

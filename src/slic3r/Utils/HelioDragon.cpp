@@ -1,4 +1,5 @@
 #include "HelioDragon.hpp"
+#include "HelioMaterialCatalog.hpp"
 
 #include <string>
 #include <wx/string.h>
@@ -326,20 +327,9 @@ void HelioQuery::request_support_material(const std::string helio_api_url, const
                         for (const auto &pobj : materials["objects"]) {
                             HelioQuery::SupportedData sp;
                             if (pobj.contains("id") && !pobj["id"].is_null()) { sp.id = pobj["id"].get<std::string>(); }
-                            if (pobj.contains("name") && !pobj["id"].is_null()) { sp.name = pobj["name"].get<std::string>(); }
+                            if (pobj.contains("name") && pobj["name"].is_string()) { sp.name = pobj["name"].get<std::string>(); }
                             if (pobj.contains("feedstock") && !pobj["feedstock"].is_null()) { sp.feedstock = pobj["feedstock"].get<std::string>(); }
-                            if (pobj.contains("alternativeNames") && pobj["alternativeNames"].is_object()) {
-                                auto alternativeNames = pobj["alternativeNames"];
-
-                                //bambu materials
-                                if (alternativeNames.contains("bambustudio") && !alternativeNames["bambustudio"].is_null()) {
-                                    sp.native_name = alternativeNames["bambustudio"].get<std::string>();
-                                }
-                                //third party materials
-                                else {
-                                    if (pobj.contains("name") && !pobj["id"].is_null()) { sp.native_name = pobj["name"].get<std::string>(); }
-                                }
-                            }
+                            sp.native_name = helio_material_catalog_matching_name(pobj);
                             // Only include materials with feedstock type FILAMENT
                             if (sp.feedstock == "FILAMENT") {
                                 supported_materials.push_back(sp);
