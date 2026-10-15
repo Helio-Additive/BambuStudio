@@ -263,6 +263,8 @@ namespace Slic3r {
             unsigned int layer_id{0};
         };
 
+        // Set only by a successful local G-code export; not a render-layer count.
+        unsigned int sliced_layer_count = 0;
         std::string filename;
         unsigned int id;
         std::vector<MoveVertex> moves;

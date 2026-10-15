@@ -1515,6 +1515,7 @@ void GCodeProcessorResult::reset() {
     //BBS: add mutex for protection of gcode result
     lock();
 
+    sliced_layer_count = 0;
     moves = std::vector<GCodeProcessorResult::MoveVertex>();
     printable_area = Pointfs();
     //BBS: add bed exclude area
@@ -1548,6 +1549,7 @@ void GCodeProcessorResult::reset() {
     //BBS: add mutex for protection of gcode result
     lock();
 
+    sliced_layer_count = 0;
     moves.clear();
     lines_ends.clear();
     printable_area = Pointfs();
