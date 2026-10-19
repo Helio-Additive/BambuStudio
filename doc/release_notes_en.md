@@ -1,5 +1,6 @@
 ## Unreleased fixes
 
+- On macOS, startup no longer opens recent 3MF projects to preload thumbnails, avoiding the sampled main-thread file-open stall during a folder permission prompt. History entries remain available with default images; opening a project retains the existing thumbnail-loading behavior. Verification on the affected Mac is still required.
 - Ported onto official Bambu Studio 2.8.4 Public Beta (`v02.08.04.57`); material-name handling uses the new catalog loader while retaining response validation, retries, and caching.
 - Helio optimization ranges now use the local G-code exporter's logical layer count, shared with `total_layer_count`, stored on successful export and cleared on result reset. Missing valid slice results require reslicing; single-layer ranges are 1–1 and multi-layer defaults start at layer 2. Preview records and sliders are no longer used. Scope is local slicing only; Helio backend layer-number conventions remain unverified.
 - Fixed catalog materials being skipped when Bambu Studio aliases are missing, null, or empty: matching now falls back to the catalog name. Synthetic Xioneer VXL111 response records cover this case; the user's live catalog response has not been verified.
