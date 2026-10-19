@@ -44,9 +44,26 @@ namespace Slic3r {
                 ThermalIndexMin,
                 ThermalIndexMax,
                 ThermalIndexMean,
+                WarpageDisplacement,
+                WarpageDispX,
+                WarpageDispY,
+                WarpageDispZ,
+                WarpageRisk,
+                WarpageTIGradient,
+                WarpageThermalStrain,
+                WarpageHullShrinkage,
+                WarpageLayerShrinkage,
+
                 // end helio
                 Count
             };
+
+            inline bool is_warpage_view(EViewType type) {
+                return type >= EViewType::WarpageDisplacement && type <= EViewType::WarpageLayerShrinkage;
+            }
+            inline size_t warpage_index(EViewType type) {
+                return size_t(type) - size_t(EViewType::WarpageDisplacement);
+            }
 
             struct ExtruderFilament
             {
@@ -444,6 +461,9 @@ namespace Slic3r {
                 Range thermal_index_max{ -100.0f, 100.0f, BaseRenderer::Thermal_Index_Range_Colors };
                 // Color mapping by thermal index mean
                 Range thermal_index_mean{ -100.0f, 100.0f, BaseRenderer::Thermal_Index_Range_Colors };
+                std::array<Range, 9> warpage;
+                std::array<bool, 9> warpage_available{};
+                void load_warpage(const GCodeProcessorResult& result);
                 // end helio
 
                 void reset() {
@@ -459,6 +479,8 @@ namespace Slic3r {
                     thermal_index_min.reset();
                     thermal_index_max.reset();
                     thermal_index_mean.reset();
+                    for (auto& range : warpage) range.reset();
+                    warpage_available.fill(false);
                     // end helio
                 }
             };

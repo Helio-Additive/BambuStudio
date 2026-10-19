@@ -212,7 +212,7 @@ public:
         float       progress{0.0f};
         std::string id;
         std::string name;
-        std::string url;
+        std::string thermal_index_gcode_url;
         std::string error;
         std::string trace_id;
         SimulationResult simulationResult;
@@ -226,7 +226,8 @@ public:
         float       progress{0.0f};
         std::string id;
         std::string name;
-        std::string url;
+        std::string optimized_gcode_url;
+        std::string optimized_gcode_with_thermal_indexes_url;
         std::string error;
         std::string trace_id;
         std::string qualityMeanImprovement;
@@ -381,7 +382,8 @@ public:
                                                          float temperatureStabilizationHeight = -1, 
                                                          float airTemperatureAboveBuildPlate = -1,
                                                          float stabilizedAirTemperature = -1,
-                                                         const std::string& job_name = std::string());
+                                                         const std::string& job_name = std::string(),
+                                                         bool enableWarpingAnalysis = false);
 
     static std::string generate_optimization_graphql_query(const std::string& gcode_id,
                                                            const std::string& printPriority,
@@ -396,7 +398,8 @@ public:
                                                            double maxExtruderFlowRate = -1,
                                                            int layersToOptimizeStart = -1,
                                                            int layersToOptimizeEnd = -1,
-                                                           const std::string& job_name = std::string());
+                                                           const std::string& job_name = std::string(),
+                                                           bool enableWarpingAnalysis = false);
     static std::string generateTimestampedString()
     {
         // Get the current UTC time
@@ -428,6 +431,10 @@ public:
 struct HelioPlateResult {
     int action{-1};  // -1=none, 0=simulation, 1=optimization
 
+    // The annotated preview path is owned by GCodeProcessorResult::filename;
+    // this separate path is the annotation-free file for export and upload.
+    std::string printable_gcode_path;
+
     // Simulation data
     HelioQuery::SimulationResult simulation_result;
     int original_print_time_seconds{0};
@@ -441,6 +448,7 @@ struct HelioPlateResult {
 
     void clear() {
         action = -1;
+        printable_gcode_path.clear();
         simulation_result = HelioQuery::SimulationResult();
         original_print_time_seconds = 0;
         optimized_print_time_seconds = 0;
@@ -518,6 +526,7 @@ public:
     HelioQuery::OptimizationInput       optimization_input_data;
 
     Slic3r::GCodeProcessorResult* m_gcode_result{nullptr};
+    std::string                   m_input_gcode_path;
     Slic3r::GCodeProcessor        m_gcode_processor;
     Slic3r::GUI::Preview*         m_preview;
     std::function<void()>         m_update_function;
@@ -595,6 +604,7 @@ public:
               std::string                   printer_id,
               std::string                   filament_id,
               Slic3r::GCodeProcessorResult* gcode_result,
+              std::string                   input_gcode_path,
               Slic3r::GUI::Preview*         preview,
               std::function<void()>         function)
     {
@@ -611,6 +621,7 @@ public:
         this->is_multi_color    = false;
         this->is_multi_material = false;
         m_gcode_result    = gcode_result;
+        m_input_gcode_path = std::move(input_gcode_path);
         m_preview         = preview;
         m_update_function = function;
         return true;
@@ -624,6 +635,7 @@ public:
               bool                          is_multi_color,
               bool                          is_multi_material,
               Slic3r::GCodeProcessorResult* gcode_result,
+              std::string                   input_gcode_path,
               Slic3r::GUI::Preview*         preview,
               std::function<void()>         function)
     {
@@ -640,6 +652,7 @@ public:
         this->is_multi_color   = is_multi_color;
         this->is_multi_material = is_multi_material;
         m_gcode_result         = gcode_result;
+        m_input_gcode_path     = std::move(input_gcode_path);
         m_preview              = preview;
         m_update_function      = function;
         return true;
@@ -666,11 +679,15 @@ public:
     void set_gcode_result(Slic3r::GCodeProcessorResult* gcode_result);
     void create_simulation_step(HelioQuery::CreateGCodeResult create_gcode_res, std::unique_ptr<GUI::NotificationManager>& notification_manager);
     void create_optimization_step(HelioQuery::CreateGCodeResult create_gcode_res, std::unique_ptr<GUI::NotificationManager>& notification_manager);
-    void save_downloaded_gcode_and_load_preview(std::string                                file_download_url,
-                                                std::string                                helio_gcode_path,
-                                                std::string                                tmp_path,
+    void save_downloaded_gcodes_and_load_preview(std::string                                preview_download_url,
+                                                 std::string                                preview_gcode_path,
+                                                 std::string                                printable_download_url,
+                                                 std::string                                printable_gcode_path,
+                                                 std::string                                tmp_path,
                                                 std::unique_ptr<GUI::NotificationManager>& notification_manager,
                                                 HelioQuery::RatingData                    rating_data);
+
+    std::string artifact_generation_suffix();
 
     std::string create_path_for_simulated_gcode(std::string unsimulated_gcode_path)
     {
@@ -681,7 +698,7 @@ public:
         }
 
         boost::filesystem::path parent       = p.parent_path();
-        std::string             new_filename = "simulated_" + p.filename().string();
+        std::string             new_filename = "simulated_" + artifact_generation_suffix() + "_" + p.filename().string();
 
         return (parent / new_filename).string();
     }
@@ -695,12 +712,21 @@ public:
         }
 
         boost::filesystem::path parent = p.parent_path();
-        std::string             new_filename = "optimized_" + p.filename().string();
+        std::string             new_filename = "optimized_" + artifact_generation_suffix() + "_" + p.filename().string();
 
         return (parent / new_filename).string();
     }
 
-    void load_helio_file_to_viwer(std::string file_path, std::string tmp_path, HelioQuery::RatingData rating_data);
+    std::string create_path_for_thermal_gcode(std::string printable_gcode_path)
+    {
+        boost::filesystem::path p(printable_gcode_path);
+        if (!p.has_filename())
+            throw std::runtime_error("Invalid path: No filename present.");
+        return (p.parent_path() / ("thermal_" + p.filename().string())).string();
+    }
+
+    void load_helio_file_to_viewer(std::string preview_path, std::string printable_path, std::string tmp_path,
+                                   HelioQuery::RatingData rating_data);
 };
 } // namespace Slic3r
 #endif

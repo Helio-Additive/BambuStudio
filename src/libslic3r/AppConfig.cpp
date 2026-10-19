@@ -415,6 +415,9 @@ void AppConfig::set_defaults()
         set("mouse_wheel", "0"); }
 
     // helio options
+    if (get("helio_warping_analysis_enabled").empty())
+        set_bool("helio_warping_analysis_enabled", false);
+
     if (get("helio_enable").empty()) {
         set_bool("helio_enable", false);
     }

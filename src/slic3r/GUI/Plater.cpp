@@ -11457,7 +11457,8 @@ bool Plater::priv::restart_background_process(unsigned int state)
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", Line %1%: print is valid, try to start it now")%__LINE__;
         // The print is valid and it can be started.
         if (this->background_process.start()) {
-            if (auto* plate = this->background_process.get_current_plate()) {
+            if (auto* plate = this->background_process.get_current_plate(); plate &&
+                (state & (UPDATE_BACKGROUND_PROCESS_FORCE_RESTART | UPDATE_BACKGROUND_PROCESS_RESTART)) != 0) {
                 plate->clear_helio_result();
             }
             if (!show_warning_dialog)
@@ -15558,84 +15559,39 @@ int Plater::priv::update_helio_background_process_once(std::string& printer_id,
 
 void Plater::priv::on_helio_processing_complete(HelioCompletionEvent &a)
 {
-    if (!helio_background_process.is_action_current(a.generation)) {
+    if (!helio_background_process.is_action_current(a.generation))
+        return;
+    PartPlate* plate = partplate_list.get_curr_plate();
+    if (!a.is_successful) {
+        if (plate) plate->restore_staged_helio_result();
+        notification_manager->push_helio_error_notification(a.error_message);
         return;
     }
-    if (a.is_successful) {
-        this->reset_gcode_toolpaths();
-
-        /*Keep the original gcode*/
-        //int deleted = boost::nowide::remove(a.tmp_path.c_str());
-        try{
-            fs::path original_path = a.tmp_path;
-            std::string original_path_name = original_path.parent_path().string() + "/original_" + original_path.filename().string();
-            int renamed = boost::nowide::rename(a.tmp_path.c_str(), original_path_name.c_str());
-
-            if (renamed != 0) {
-                BOOST_LOG_TRIVIAL(error) << "Helio Failed to rename file";
-            }
-        }
-        catch (...){
-            BOOST_LOG_TRIVIAL(error) << "Helio Failed to rename file";
-        }
-
-
-        std::string copied;
-        copy_file(a.path, a.tmp_path, copied);
-
-        /*time improvement */
-        float      time_origin_value;
-        float      time_optimized_value;
-        auto       aprint_stats = wxGetApp().plater()->get_partplate_list().get_current_fff_print().print_statistics();
-        PartPlate* plate = wxGetApp().plater()->get_partplate_list().get_curr_plate();
-        if (plate) {
-            if (plate->get_slice_result()) {
-                time_origin_value = plate->get_slice_result()->print_statistics.modes[0].time;
-                //time_origin = wxString::Format("%s", short_time(get_time_dhms(plate->get_slice_result()->print_statistics.modes[0].time)));
-            }
-        }
-
-        BOOST_LOG_TRIVIAL(debug) << boost::format("Failed to delete file %1%") % copied;
-
-        helio_background_process.m_gcode_result->filename = a.tmp_path;
-
-        GCodeProcessorResult *res1 = partplate_list.get_curr_plate()->get_gcode_result();
-        *res1 = *helio_background_process.m_gcode_result;
-        GCodeProcessorResult *res2 = background_process.get_current_gcode_result();
-        *res2 = *helio_background_process.m_gcode_result;
-
-        this->update();
-
-        /*show rating*/
-        if (a.action == 1) {
-
-            auto       aprint_stats1 = wxGetApp().plater()->get_partplate_list().get_current_fff_print().print_statistics();
-            wxString   time1;
-            PartPlate* plate1 = wxGetApp().plater()->get_partplate_list().get_curr_plate();
-            if (plate1) {
-                if (plate->get_slice_result()) {
-                    time_optimized_value = plate->get_slice_result()->print_statistics.modes[0].time;
-                    //time_optimized = wxString::Format("%s", short_time(get_time_dhms(plate->get_slice_result()->print_statistics.modes[0].time)));
-                }
-            }
-
-            // Store optimization result to current plate for "View Summary" feature
-            if (plate) {
-                HelioPlateResult helio_result;
-                helio_result.action = 1;  // Optimization
-                helio_result.original_print_time_seconds = time_origin_value;
-                helio_result.optimized_print_time_seconds = time_optimized_value;
-                helio_result.quality_mean_improvement = a.quality_mean_improvement;
-                helio_result.quality_std_improvement = a.quality_std_improvement;
-                helio_result.is_valid = true;
-                plate->set_helio_result(helio_result);
-            }
-
-            HelioRatingDialog dlg(nullptr, time_origin_value, time_optimized_value, a.quality_mean_improvement, a.quality_std_improvement);
-            dlg.ShowModal();
-        }
-    } else {
-        notification_manager->push_helio_error_notification(a.error_message);
+    if (!plate || !helio_background_process.m_gcode_result)
+        return;
+    const float original_time = plate->get_slice_result()->print_statistics.modes[0].time;
+    this->reset_gcode_toolpaths();
+    // Offsets belong to the annotated preview; leave the original slice untouched.
+    helio_background_process.m_gcode_result->filename = a.path;
+    *plate->get_gcode_result() = *helio_background_process.m_gcode_result;
+    *background_process.get_current_gcode_result() = *helio_background_process.m_gcode_result;
+    const auto* staged = plate->get_helio_result();
+    HelioPlateResult result = a.action == 0 && staged ? *staged : HelioPlateResult();
+    result.action = a.action;
+    result.printable_gcode_path = a.printable_path;
+    result.is_valid = true;
+    if (a.action == 1) {
+        result.original_print_time_seconds = original_time;
+        result.optimized_print_time_seconds = plate->get_slice_result()->print_statistics.modes[0].time;
+        result.quality_mean_improvement = a.quality_mean_improvement;
+        result.quality_std_improvement = a.quality_std_improvement;
+    }
+    plate->set_helio_result(result);
+    this->update();
+    if (a.action == 1) {
+        HelioRatingDialog dlg(nullptr, original_time, result.optimized_print_time_seconds,
+                             a.quality_mean_improvement, a.quality_std_improvement);
+        dlg.ShowModal();
     }
 }
 
@@ -15730,9 +15686,9 @@ void Plater::priv::on_helio_process(const PartPlate* expected_plate)
 
                 const bool initialized = multimaterial_enabled
                     ? helio_background_process.init(helio_api_key, helio_api_url, printer_id, materials, is_multi_color,
-                                                    is_multi_material, g_result, preview, [this]() {})
+                                                    is_multi_material, g_result, partplate_list.get_curr_plate()->get_gcode_filename(), preview, [this]() {})
                     : helio_background_process.init(helio_api_key, helio_api_url, printer_id, material_id, g_result,
-                                                    preview, [this]() {});
+                                                    partplate_list.get_curr_plate()->get_gcode_filename(), preview, [this]() {});
                 if (!initialized) {
                     MessageDialog dlg(nullptr, _L("Previous Helio action is still stopping; try again shortly"),
                                       _L("Helio Additive"), wxOK | wxICON_WARNING);
@@ -15765,9 +15721,9 @@ void Plater::priv::on_helio_process(const PartPlate* expected_plate)
 
                 const bool initialized = multimaterial_enabled
                     ? helio_background_process.init(helio_api_key, helio_api_url, printer_id, materials, is_multi_color,
-                                                    is_multi_material, g_result, preview, [this]() {})
+                                                    is_multi_material, g_result, partplate_list.get_curr_plate()->get_gcode_filename(), preview, [this]() {})
                     : helio_background_process.init(helio_api_key, helio_api_url, printer_id, material_id, g_result,
-                                                    preview, [this]() {});
+                                                    partplate_list.get_curr_plate()->get_gcode_filename(), preview, [this]() {});
                 if (!initialized) {
                     MessageDialog dlg(nullptr, _L("Previous Helio action is still stopping; try again shortly"),
                                       _L("Helio Additive"), wxOK | wxICON_WARNING);
@@ -16679,6 +16635,7 @@ void Plater::priv::init_notification_manager()
         else {
             this->helio_background_process.stop_current_helio_action();
             this->helio_background_process.stop();
+            if (auto* plate = partplate_list.get_curr_plate()) plate->restore_staged_helio_result();
             res1 = true;
             notification_manager->set_slicing_progress_hidden();
         }
@@ -24434,9 +24391,9 @@ void Plater::stop_helio_process()
 {
     if (p->helio_background_process.is_running()) {
         p->helio_background_process.clear_helio_file_cache();
-        // Clear helio result for current plate when canceling
+        // Restore the last completed result when canceling a replacement.
         if (auto* plate = p->partplate_list.get_curr_plate()) {
-            plate->clear_helio_result();
+            plate->restore_staged_helio_result();
         }
         p->helio_background_process.reset();
         p->helio_background_process.stop_current_helio_action();

@@ -1657,6 +1657,13 @@ wxWindow *PreferencesDialog::create_other_tab()
     auto        scrolled = new ScrollPanel(m_book);
     wxBoxSizer *sizer    = new wxBoxSizer(wxVERTICAL);
 
+    auto title_helio = create_item_title(_L("Helio"), scrolled, "");
+    auto item_warping = create_item_checkbox(_L("Experimental: Enable warping analysis"), scrolled,
+        _L("When enabled, Helio performs warping analysis during simulations and optimizations"),
+        50, "helio_warping_analysis_enabled");
+    sizer->Add(title_helio, wxSizerFlags().Expand().Border(wxTOP, FromDIP(16)));
+    sizer->Add(wrap_option_row(scrolled, item_warping), row_flags());
+
     // ---- Project ----
     auto title_project         = create_item_title(_L("Project"), scrolled, "");
     auto item_max_recent_count = create_item_input(_L("Maximum recent projects"), "", scrolled, _L("Maximum count of recent projects"), "max_recent_count", [](wxString value) {
