@@ -127,10 +127,18 @@ jobs:
       - name: Build slicer Win
         if: inputs.os == 'windows-latest'
         working-directory: ${{ github.workspace }}
+        shell: pwsh
         run: |
+          $pkgConfig = Get-ChildItem -Path "$env:ChocolateyInstall/lib/pkgconfiglite" -Filter pkg-config.exe -Recurse -File -ErrorAction Stop | Select-Object -First 1
+          if (-not $pkgConfig) {
+            throw "pkgconfiglite's pkg-config.exe was not found"
+          }
+          & $pkgConfig.FullName --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           mkdir build
           cd build
-          cmake .. -G "Visual Studio 18 2026" -A X64 -DBBL_RELEASE_TO_PUBLIC=1 -DBBL_INTERNAL_TESTING=0 -DCMAKE_PREFIX_PATH="${{ github.workspace }}\deps\build\BambuStudio_dep\usr\local" -DCMAKE_INSTALL_PREFIX="../install-dir" -DCMAKE_BUILD_TYPE=Release -DWIN10SDK_PATH="C:/Program Files (x86)/Windows Kits/10/Include/10.0.22000.0"
+          cmake .. -G "Visual Studio 18 2026" -A X64 -DBBL_RELEASE_TO_PUBLIC=1 -DBBL_INTERNAL_TESTING=0 -DCMAKE_PREFIX_PATH="${{ github.workspace }}\deps\build\BambuStudio_dep\usr\local" -DCMAKE_INSTALL_PREFIX="../install-dir" -DCMAKE_BUILD_TYPE=Release -DWIN10SDK_PATH="C:/Program Files (x86)/Windows Kits/10/Include/10.0.22000.0" "-DPKG_CONFIG_EXECUTABLE=$($pkgConfig.FullName)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build . --target install --config Release -- -m
 
       # - name: Create installer Win
