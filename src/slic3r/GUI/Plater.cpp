@@ -15645,7 +15645,8 @@ void Plater::priv::on_helio_process(const PartPlate* expected_plate)
         std::string primary_material_id = multimaterial_enabled
             ? (materials.empty() ? "" : materials[0].materialId)
             : material_id;
-        HelioInputDialog dlg(nullptr, primary_material_id);
+        HelioInputDialog dlg(nullptr, primary_material_id,
+                             multimaterial_enabled ? boost::optional<bool>(is_multi_material) : boost::none);
 
         // Check if we should pre-select optimization mode (set from simulation results dialog)
         if (g_helio_pre_select_optimization) {

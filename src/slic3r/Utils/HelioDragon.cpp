@@ -34,7 +34,7 @@
 
 namespace Slic3r {
 
-std::map<std::string, std::vector<HelioQuery::PrintPriorityOption>> HelioQuery::global_print_priority_cache;
+std::map<std::pair<std::string, int>, std::vector<HelioQuery::PrintPriorityOption>> HelioQuery::global_print_priority_cache;
 
 std::string HelioQuery::last_simulation_trace_id;
 std::string HelioQuery::last_optimization_trace_id;  
@@ -573,15 +573,22 @@ void HelioQuery::request_print_priority_options(
     const std::string& helio_api_url,
     const std::string& helio_api_key,
     const std::string& material_id,
-    std::function<void(GetPrintPriorityOptionsResult)> callback
+    std::function<void(GetPrintPriorityOptionsResult)> callback,
+    boost::optional<bool> is_multi_material
 )
 {
-    std::string query_body = R"( {
-        "query": "query GetPrintPriorityOptions($materialId: ID!) { printPriorityOptions(materialId: $materialId) { value label isAvailable description } }",
-        "variables": {"materialId": "%1%"}
-    } )";
-
-    query_body = boost::str(boost::format(query_body) % material_id);
+    nlohmann::json request;
+    request["variables"] = {{"materialId", material_id}};
+    if (is_multi_material.has_value()) {
+        request["query"] = "query GetPrintPriorityOptions($materialId: ID!, $isMultiMaterial: Boolean) { printPriorityOptions(materialId: $materialId, isMultiMaterial: $isMultiMaterial) { value label isAvailable description } }";
+        request["variables"]["isMultiMaterial"] = *is_multi_material;
+    } else {
+        // Keep the V2 query compatible with APIs that do not support the new argument.
+        request["query"] = "query GetPrintPriorityOptions($materialId: ID!) { printPriorityOptions(materialId: $materialId) { value label isAvailable description } }";
+    }
+    std::string query_body = request.dump();
+    // -1: V2 (argument omitted), 0: V3 single material, 1: V3 multi-material.
+    const auto cache_key = std::make_pair(material_id, is_multi_material ? int(*is_multi_material) : -1);
     const bool is_china = GUI::wxGetApp().app_config->get("region") == "China";
 
     std::uint64_t cache_generation = 0;
@@ -592,7 +599,7 @@ void HelioQuery::request_print_priority_options(
     }
 
     const bool worker_started = helio_request_workers().start(
-        [helio_api_url, helio_api_key, material_id, callback,
+        [helio_api_url, helio_api_key, cache_key, callback,
          query_body = std::move(query_body), is_china, cache_generation]
         (const std::atomic_bool& stopping) {
             if (stopping.load(std::memory_order_acquire)) {
@@ -615,7 +622,7 @@ void HelioQuery::request_print_priority_options(
                 .on_header_callback([response_headers](std::string headers) {
                     *response_headers += headers;
                 })
-                .on_complete([callback, material_id, response_headers, cache_generation, &stopping]
+                .on_complete([callback, cache_key, response_headers, cache_generation, &stopping]
                              (std::string body, unsigned status) {
                     if (stopping.load(std::memory_order_acquire)) {
                         return;
@@ -653,7 +660,7 @@ void HelioQuery::request_print_priority_options(
                                 HelioPrintPriorityCacheState& cache = helio_print_priority_cache_state();
                                 std::lock_guard<std::mutex> lock(cache.mutex);
                                 if (cache_generation == cache.generation) {
-                                    global_print_priority_cache[material_id] = result.options;
+                                    global_print_priority_cache[cache_key] = result.options;
                                 } else {
                                     result.success = false;
                                     result.options.clear();
@@ -703,12 +710,13 @@ void HelioQuery::request_print_priority_options(
 }
 
 std::vector<HelioQuery::PrintPriorityOption> HelioQuery::get_cached_print_priority_options(
-    const std::string& material_id
+    const std::string& material_id,
+    boost::optional<bool> is_multi_material
 )
 {
     HelioPrintPriorityCacheState& cache = helio_print_priority_cache_state();
     std::lock_guard<std::mutex> lock(cache.mutex);
-    auto it = global_print_priority_cache.find(material_id);
+    auto it = global_print_priority_cache.find(std::make_pair(material_id, is_multi_material ? int(*is_multi_material) : -1));
     if (it != global_print_priority_cache.end()) {
         return it->second;
     }

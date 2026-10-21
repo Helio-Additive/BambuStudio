@@ -2,6 +2,7 @@
 #define slic3r_HelioDragon_hpp_
 
 #include <string>
+#include <utility>
 #include <cstdint>
 #include <wx/string.h>
 #include <boost/optional.hpp>
@@ -329,11 +330,13 @@ public:
         const std::string& helio_api_url,
         const std::string& helio_api_key,
         const std::string& material_id,
-        std::function<void(GetPrintPriorityOptionsResult)> callback
+        std::function<void(GetPrintPriorityOptionsResult)> callback,
+        boost::optional<bool> is_multi_material = boost::none
     );
 
     static std::vector<PrintPriorityOption> get_cached_print_priority_options(
-        const std::string& material_id
+        const std::string& material_id,
+        boost::optional<bool> is_multi_material = boost::none
     );
 
     static void clear_print_priority_cache();
@@ -412,7 +415,7 @@ public:
         return "BambuSlicer " + iso_datetime;
     }
 
-    static std::map<std::string, std::vector<PrintPriorityOption>> global_print_priority_cache;
+    static std::map<std::pair<std::string, int>, std::vector<PrintPriorityOption>> global_print_priority_cache;
     static std::string last_simulation_trace_id;
     static std::string last_optimization_trace_id;
     static double convert_speed(float mm_per_second);

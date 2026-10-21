@@ -2,6 +2,7 @@
 #define slic3r_GUI_HelioReleaseNote_hpp_
 
 #include <limits>
+#include <boost/optional.hpp>
 #include <wx/wx.h>
 #include <wx/intl.h>
 #include <wx/collpane.h>
@@ -181,6 +182,7 @@ private:
     wxString m_lastValidValue = wxEmptyString;
 
     std::string m_material_id;
+    boost::optional<bool> m_is_multi_material;
     std::vector<HelioQuery::PrintPriorityOption> m_print_priority_options;
     std::vector<HelioQuery::PrintPriorityOption> m_available_print_priority_options;
     bool m_print_priority_loading{false};
@@ -224,7 +226,8 @@ private:
     
     int m_original_tooltip_delay{500};
 public:
-    HelioInputDialog(wxWindow *parent = nullptr, const std::string& material_id = "");
+    HelioInputDialog(wxWindow *parent = nullptr, const std::string& material_id = "",
+                     boost::optional<bool> is_multi_material = boost::none);
     ~HelioInputDialog();
 
 public:
