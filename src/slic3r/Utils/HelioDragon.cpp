@@ -1525,12 +1525,10 @@ std::string HelioQuery::generate_optimization_graphql_query(const std::string& g
     // Set optimizer to HYBRID
     optimization_fields.push_back(R"("optimizer": "HYBRID")");
 
-    // Default to layer 2 if not specified
-    int actualStartLayer = (layersToOptimizeStart == 1) ? 2 : layersToOptimizeStart;
-
+    // Preserve the validated range, including single-layer prints (1..1).
     optimization_fields.push_back(boost::str(boost::format(
         R"("layersToOptimize": [{"fromLayer": %1%, "toLayer": %2%}])"
-    ) % actualStartLayer% layersToOptimizeEnd));
+    ) % layersToOptimizeStart % layersToOptimizeEnd));
 
     // optimization_block
     std::string optimization_block = boost::join(optimization_fields, ",\n");
@@ -2931,7 +2929,11 @@ void HelioBackgroundProcess::save_downloaded_gcodes_and_load_preview(
     std::string tmp_path, std::unique_ptr<GUI::NotificationManager>& notification_manager,
     HelioQuery::RatingData rating_data)
 {
-    auto download = [this](const std::string& url, const std::string& destination, const char* variant) {
+    const auto action_generation = helio_worker_generation;
+    if (!is_action_current(action_generation))
+        return;
+
+    auto download = [this, action_generation](const std::string& url, const std::string& destination, const char* variant) {
         unsigned response_status = 0;
         std::string downloaded_gcode;
         std::string response_error;
@@ -2939,7 +2941,7 @@ void HelioBackgroundProcess::save_downloaded_gcodes_and_load_preview(
         const int max_attempts = 7;
         int number_of_seconds_till_next_attempt = 0;
 
-        while (response_status != 200 && !was_canceled()) {
+        while (response_status != 200 && !was_canceled() && is_action_current(action_generation)) {
             if (number_of_seconds_till_next_attempt <= 0) {
                 auto http = Http::get(url);
                 http.on_complete([&](std::string body, unsigned status) {
@@ -2953,7 +2955,15 @@ void HelioBackgroundProcess::save_downloaded_gcodes_and_load_preview(
                         response_status = status;
                         response_error = (boost::format("status: %1%, error: %2%") % status % (error.empty() ? body : error)).str();
                     })
+                    .timeout_connect(20)
+                    .timeout_max(100)
+                    .on_progress([this, action_generation](Http::Progress, bool& cancel) {
+                        cancel = was_canceled() || !is_action_current(action_generation);
+                    })
                     .perform_sync();
+
+                if (was_canceled() || !is_action_current(action_generation))
+                    break;
 
                 if (response_status == 200) {
                     response_error.clear();
@@ -2973,12 +2983,15 @@ void HelioBackgroundProcess::save_downloaded_gcodes_and_load_preview(
                 }
                 number_of_seconds_till_next_attempt = number_of_attempts * 5;
             } else {
-                boost::this_thread::sleep_for(boost::chrono::seconds(1));
+                if (!helio_sleep_for_retry_or_cancel(1, [this, action_generation]() {
+                        return was_canceled() || !is_action_current(action_generation);
+                    }))
+                    break;
                 --number_of_seconds_till_next_attempt;
             }
         }
 
-        if (!response_error.empty() || was_canceled())
+        if (!response_error.empty() || was_canceled() || !is_action_current(action_generation))
             return response_error.empty() ? std::string("Download canceled") : response_error;
 
         if (downloaded_gcode.empty()) return std::string("Helio returned an empty GCode file");
@@ -2994,6 +3007,9 @@ void HelioBackgroundProcess::save_downloaded_gcodes_and_load_preview(
         response_error = download(printable_download_url, printable_gcode_path, "printable");
     if (response_error.empty())
         response_error = download(preview_download_url, preview_gcode_path, "thermal preview");
+
+    if (!is_action_current(action_generation))
+        return;
 
     if (response_error.empty() && !was_canceled()) {
         Slic3r::PrintBase::SlicingStatus status(100, _u8L("Helio: GCode downloaded successfully"));

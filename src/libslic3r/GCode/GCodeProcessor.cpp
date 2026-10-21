@@ -1515,11 +1515,11 @@ void GCodeProcessor::UsedFilaments::process_caches(GCodeProcessor* processor)
 
 #if ENABLE_GCODE_VIEWER_STATISTICS
 void GCodeProcessorResult::reset() {
+    //BBS: add mutex for protection of gcode result
+    lock();
     is_helio_gcode = false;
     warpage_wdm_p95 = NAN;
     warpage_whs_p95 = NAN;
-    //BBS: add mutex for protection of gcode result
-    lock();
 
     sliced_layer_count = 0;
     moves = std::vector<GCodeProcessorResult::MoveVertex>();
@@ -1552,11 +1552,11 @@ void GCodeProcessorResult::reset() {
 }
 #else
 void GCodeProcessorResult::reset() {
+    //BBS: add mutex for protection of gcode result
+    lock();
     is_helio_gcode = false;
     warpage_wdm_p95 = NAN;
     warpage_whs_p95 = NAN;
-    //BBS: add mutex for protection of gcode result
-    lock();
 
     sliced_layer_count = 0;
     moves.clear();
