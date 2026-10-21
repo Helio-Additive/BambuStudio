@@ -1,4 +1,5 @@
 #include "HelioSupportData.hpp"
+#include "HelioMaterialCatalog.hpp"
 
 #include "nlohmann/json.hpp"
 
@@ -202,8 +203,8 @@ SupportDataPageResult parse_support_data_page(SupportDataCatalogKind        kind
                 }
             }
 
-            if (kind == SupportDataCatalogKind::Materials && item.native_name.empty()) {
-                item.native_name = item.name;
+            if (kind == SupportDataCatalogKind::Materials) {
+                item.native_name = helio_material_catalog_matching_name(object);
             }
 
             if (kind == SupportDataCatalogKind::Printers || item.feedstock == "FILAMENT") {

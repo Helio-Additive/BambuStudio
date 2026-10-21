@@ -657,6 +657,7 @@ public:
     GLCanvas3D* get_current_canvas3D(bool exclude_preview = false);
     bool        get_preview_min_max_value_of_option(int index, float &_min, float &_max);
     int         get_gcode_layers_count();
+    unsigned int get_sliced_layers_count() const;
     GLCanvas3D* get_view3D_canvas3D();
     GLCanvas3D* get_preview_canvas3D();
     GLCanvas3D* get_assmeble_canvas3D();

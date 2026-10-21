@@ -4497,6 +4497,12 @@ size_t MainFrame::FileHistory::FindFileInHistory(const wxString & file)
 
 void MainFrame::FileHistory::LoadThumbnails()
 {
+    // macOS may block opening a historical project on a Downloads/Documents
+    // permission prompt. This runs during MainFrame construction: parallel_for
+    // also executes work on (and blocks) the UI thread, before startup completes.
+    // Keep the empty thumbnails on macOS; AddFileToHistory loads a thumbnail
+    // after the user explicitly opens a project. Do not probe old files here.
+#ifndef __APPLE__
     tbb::parallel_for(tbb::blocked_range<size_t>(0, GetCount()), [this](tbb::blocked_range<size_t> range) {
         for (size_t i = range.begin(); i < range.end(); ++i) {
             auto thumbnail = bbs_3mf_get_thumbnail(into_u8(GetHistoryFile(i)).c_str());
@@ -4505,6 +4511,7 @@ void MainFrame::FileHistory::LoadThumbnails()
             }
         }
     });
+#endif
     m_load_called = true;
 }
 

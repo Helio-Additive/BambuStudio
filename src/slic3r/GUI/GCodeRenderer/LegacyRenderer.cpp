@@ -180,7 +180,9 @@ namespace Slic3r {
                         additional_fan_speed == move.additional_fan_speed &&
                         height == round_to_bin(move.height) && width == round_to_bin(move.width) &&
                         matches_percent(volumetric_rate, move.volumetric_rate(), 0.05f) && layer_time == move.layer_duration &&
-                        thermal_index_mean == move.thermal_index_mean && thermal_index_min == move.thermal_index_min && thermal_index_max == move.thermal_index_max;
+                        thermal_index_mean == move.thermal_index_mean && thermal_index_min == move.thermal_index_min && thermal_index_max == move.thermal_index_max &&
+                        std::equal(warpage.begin(), warpage.end(), move.warpage_values().begin(),
+                            [](float a, float b) { return a == b || (std::isnan(a) && std::isnan(b)); });
                 }
                 case EMoveType::Travel: {
                     return type == move.type && feedrate == move.feedrate && extruder_id == move.extruder_id && cp_color_id == move.cp_color_id;
@@ -219,6 +221,7 @@ namespace Slic3r {
                      move.thermal_index_min,
                      move.thermal_index_max,
                      move.thermal_index_mean,
+                     move.warpage_values(),
                      move.volumetric_rate(),
                      move.layer_duration,
                      move.extruder_id,
@@ -1776,6 +1779,21 @@ namespace Slic3r {
                         break;
                     }
                     // helio
+                    case EViewType::WarpageDisplacement:
+                    case EViewType::WarpageDispX:
+                    case EViewType::WarpageDispY:
+                    case EViewType::WarpageDispZ:
+                    case EViewType::WarpageRisk:
+                    case EViewType::WarpageTIGradient:
+                    case EViewType::WarpageThermalStrain:
+                    case EViewType::WarpageHullShrinkage:
+                    case EViewType::WarpageLayerShrinkage:
+                    {
+                        const size_t index = warpage_index(m_view_type);
+                        const auto& range = m_p_extrusions->ranges.warpage[index];
+                        const float value = path.warpage[index];
+                        color = std::isfinite(value) ? range.get_color_at(std::clamp(value, range.min, range.max)) : ColorRGBA::GRAY(); break;
+                    }
                     case EViewType::ThermalIndexMin: { color = m_p_extrusions->ranges.thermal_index_min.get_color_at(path.thermal_index_min); break; }
                     case EViewType::ThermalIndexMax: { color = m_p_extrusions->ranges.thermal_index_max.get_color_at(path.thermal_index_max); break; }
                     case EViewType::ThermalIndexMean: { color = m_p_extrusions->ranges.thermal_index_mean.get_color_at(path.thermal_index_mean); break; }

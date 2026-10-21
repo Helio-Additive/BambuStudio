@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <optional>
+#include <cmath>
 
 namespace Slic3r {
 
@@ -222,6 +223,19 @@ namespace Slic3r {
             float thermal_index_min{0.0f};
             float thermal_index_max{0.0f};
             float thermal_index_mean{0.0f};
+            float warpage_displacement{ NAN };
+            float warpage_disp_x{ NAN };
+            float warpage_disp_y{ NAN };
+            float warpage_disp_z{ NAN };
+            float warpage_risk{ NAN };
+            float warpage_ti_gradient{ NAN };
+            float warpage_thermal_strain{ NAN };
+            float warpage_hull_shrinkage{ NAN };
+            float warpage_layer_shrinkage{ NAN };
+            std::array<float, 9> warpage_values() const {
+                return { warpage_displacement, warpage_disp_x, warpage_disp_y, warpage_disp_z, warpage_risk, warpage_ti_gradient, warpage_thermal_strain, warpage_hull_shrinkage, warpage_layer_shrinkage };
+            }
+
 
             std::array<float, 2>time{ 0.f,0.f }; // prefix sum of time, assigned during finalize()
 
@@ -263,6 +277,8 @@ namespace Slic3r {
             unsigned int layer_id{0};
         };
 
+        // Set only by a successful local G-code export; not a render-layer count.
+        unsigned int sliced_layer_count = 0;
         std::string filename;
         unsigned int id;
         std::vector<MoveVertex> moves;
@@ -285,6 +301,8 @@ namespace Slic3r {
         bool support_traditional_timelapse{true};
         bool update_imgui_flag{false};
         bool is_helio_gcode{false};
+        float warpage_wdm_p95{NAN};
+        float warpage_whs_p95{NAN};
         float printable_height;
         SettingsIds settings_ids;
         size_t filaments_count;
@@ -342,6 +360,8 @@ namespace Slic3r {
             support_material_on_wipe_tower = other.support_material_on_wipe_tower;
             update_imgui_flag         = other.update_imgui_flag;
             is_helio_gcode            = other.is_helio_gcode;
+            warpage_wdm_p95 = other.warpage_wdm_p95;
+            warpage_whs_p95 = other.warpage_whs_p95;
             long_retraction_when_cut = other.long_retraction_when_cut;
             timelapse_warning_code = other.timelapse_warning_code;
             support_traditional_timelapse = other.support_traditional_timelapse;
@@ -1192,6 +1212,8 @@ namespace Slic3r {
         ExtruderColors m_extruder_colors;
         ExtruderTemps m_extruder_temps;
         ThermalIndex m_thermal_index;
+        std::array<float, 9> m_warpage_fields{ NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN };
+        std::optional<unsigned int> m_pending_helio_gcode_id;
         bool m_is_helio_gcode{false};
         int m_highest_bed_temp;
         float m_extruded_last_z;
@@ -1312,7 +1334,6 @@ namespace Slic3r {
                     is_helio      = true;
                     return ThermalIndex(minVal, maxVal, meanVal);
                 } else {
-                    std::cerr << "Error: Unable to parse thermal index values from comment." << std::endl;
                     return ThermalIndex();
                 }
 

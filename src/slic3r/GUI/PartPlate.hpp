@@ -111,6 +111,8 @@ private:
     // undo/redo (included in load()/save() below) but deliberately not written to 3mf.
     bool m_wipe_tower_placed {false};
     std::unique_ptr<HelioPlateResult> m_helio_result;
+    std::unique_ptr<HelioPlateResult> m_previous_helio_result;
+    bool m_helio_result_staged{false};
     float m_slice_percent;
 
     Print *m_print; //Print reference, not own it, no need to serialize
@@ -497,6 +499,8 @@ public:
     // Helio result per-plate storage
     const HelioPlateResult* get_helio_result() const;
     void set_helio_result(const HelioPlateResult& result);
+    void stage_helio_result(const HelioPlateResult& result);
+    void restore_staged_helio_result();
     void clear_helio_result();
     bool has_helio_result() const;
 

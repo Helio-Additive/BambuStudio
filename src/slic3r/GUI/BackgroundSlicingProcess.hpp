@@ -39,6 +39,7 @@ public:
     int action; //0-simulation 1-optimization
     std::string quality_mean_improvement;
     std::string quality_std_improvement;
+    std::string printable_path;
     std::uint64_t generation;
 };
 

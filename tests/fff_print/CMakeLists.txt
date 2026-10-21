@@ -7,6 +7,7 @@ add_executable(${_TEST_NAME}_tests
 	test_fill.cpp
 	test_flow.cpp
 	test_gcode.cpp
+	test_gcode_helio.cpp
 	test_gcodewriter.cpp
 	test_gcodewriter_travel.cpp
 	test_model.cpp
