@@ -3,6 +3,7 @@
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/GLTexture.hpp"
+#include "slic3r/GUI/Camera.hpp"
 #include "slic3r/GUI/OpenGLManager.hpp"
 #include "slic3r/GUI/IMSlider.hpp"
 #include "slic3r/GUI/MainFrame.hpp"
@@ -129,6 +130,16 @@ namespace
         {
             return float(t_move.cp_color_id);
         }
+        case Slic3r::GUI::gcode::EViewType::WarpageDisplacement:
+        case Slic3r::GUI::gcode::EViewType::WarpageDispX:
+        case Slic3r::GUI::gcode::EViewType::WarpageDispY:
+        case Slic3r::GUI::gcode::EViewType::WarpageDispZ:
+        case Slic3r::GUI::gcode::EViewType::WarpageRisk:
+        case Slic3r::GUI::gcode::EViewType::WarpageTIGradient:
+        case Slic3r::GUI::gcode::EViewType::WarpageThermalStrain:
+        case Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage:
+        case Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage:
+            return t_move.warpage_values()[Slic3r::GUI::gcode::warpage_index(type)];
         // helio
         case Slic3r::GUI::gcode::EViewType::ThermalIndexMin:
         {
@@ -1210,6 +1221,21 @@ namespace Slic3r
                     p_shader->set_uniform("s_color_range_texture", color_range_stage);
                     break;
                 }
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                {
+                    const uint8_t color_range_stage = texture_stage;
+                    bind_warpage_range_colors_texture(color_range_stage);
+                    p_shader->set_uniform("s_color_range_texture", color_range_stage);
+                    break;
+                }
                 // helio
                 case EViewType::ThermalIndexMin:
                 case EViewType::ThermalIndexMax:
@@ -1478,6 +1504,16 @@ namespace Slic3r
                     return t_range;
                 }
                 // helio
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                    return m_p_extrusions->ranges.warpage[warpage_index(type)];
                 case Slic3r::GUI::gcode::EViewType::ThermalIndexMin:
                 {
                     return m_p_extrusions->ranges.thermal_index_min;
@@ -1581,6 +1617,46 @@ namespace Slic3r
 
                 if (m_p_thermal_index_range_colors_texture) {
                     m_p_thermal_index_range_colors_texture->bind(stage);
+                }
+            }
+
+            void AdvancedRenderer::bind_warpage_range_colors_texture(uint8_t stage)
+            {
+                auto& texture = m_warpage_color_textures[warpage_index(m_view_type)];
+                const auto& palette = m_p_extrusions->ranges.warpage[warpage_index(m_view_type)].range_colors;
+                const auto color_count = palette.size();
+                const uint32_t width = color_count;
+                const uint32_t height = 1;
+                if (!texture) {
+                    texture = std::make_shared<GLTexture>();
+                    texture->set_width(width)
+                        .set_height(height)
+                        .set_internal_format(Slic3r::GUI::ETextureFormat::RGBA8)
+                        .set_sampler(Slic3r::GUI::ESamplerType::Sampler2D)
+                        .set_pixel_data_format(Slic3r::GUI::EPixelFormat::RGBA)
+                        .set_pixel_data_type(Slic3r::GUI::EPixelDataType::Float)
+                        .set_mag_filter(ESamplerFilterMode::Linear)
+                        .set_min_filter(ESamplerFilterMode::Linear)
+                        .build();
+
+                    std::vector<float> temp_data;
+                    temp_data.resize(width * height * 4);
+                    std::memset(temp_data.data(), 0, temp_data.size() * sizeof(float));
+                    for (size_t i = 0; i < color_count; ++i) {
+                        const auto& tRGBA = palette[i].get_data();
+                        for (int j = 0; j < tRGBA.size(); ++j) {
+                            temp_data[i * 4 + j] = tRGBA[j];
+                        }
+                    }
+                    std::vector<uint8_t> pixel_data;
+                    pixel_data.resize(temp_data.size() * sizeof(float));
+                    memcpy(pixel_data.data(), temp_data.data(), temp_data.size() * sizeof(float));
+                    std::shared_ptr<Slic3r::GUI::PixelBufferDescriptor> pbd = std::make_shared<Slic3r::GUI::PixelBufferDescriptor>(std::move(pixel_data), Slic3r::GUI::EPixelFormat::RGBA, Slic3r::GUI::EPixelDataType::Float);
+                    texture->set_image(0, 0, 0, 0, width, height, 1, pbd);
+                }
+
+                if (texture) {
+                    texture->bind(stage);
                 }
             }
 
