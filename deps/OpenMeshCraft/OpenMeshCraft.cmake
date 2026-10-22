@@ -264,7 +264,8 @@ bambustudio_add_cmake_project(OpenMeshCraft
   URL https://github.com/bambulab/OpenMeshCraft/archive/0e8d12c3df54804393593ab5d86c05caa340cbee.zip
   URL_HASH SHA256=632CD806CE932D6A1D76DF0E86ECF8BFC22480E76F80A638A28474F5262E2B9E
   ${_OMC_DEPENDS}
-  PATCH_COMMAND ${GIT_EXECUTABLE} apply --whitespace=fix
+  # Windows checkouts may use CRLF while the source archive uses LF.
+  PATCH_COMMAND ${PATCH_CMD}
     ${_OMC_DIR}/0001-msvc-arm64-portability.patch
   COMMAND ${CMAKE_COMMAND}
     -DOMC_SOURCE_DIR=<SOURCE_DIR>
