@@ -19443,7 +19443,7 @@ msgstr "翹曲風險"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
 msgid "Hull shrinkage"
-msgstr "外殼收縮"
+msgstr "收縮紋路"
 
 #~ msgid "Previous"
 #~ msgstr "上一步"

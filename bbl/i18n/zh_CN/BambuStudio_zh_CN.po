@@ -19446,7 +19446,7 @@ msgstr "翘曲风险"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
 msgid "Hull shrinkage"
-msgstr "外壳收缩"
+msgstr "收缩纹路"
 
 #~ msgid "Adjust filament matching"
 #~ msgstr "调整耗材匹配"
