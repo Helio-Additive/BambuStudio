@@ -19427,6 +19427,27 @@ msgstr ""
 "一次成功的可靠性\n"
 "更少盯机，更可预测的产出。例如：小型打印农场打印 PETG 零件可降低意外失败的概率，让批次按计划推进。"
 
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
+msgid "Experimental: Enable warping analysis"
+msgstr "实验性：启用翘曲分析"
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp
+msgid "When enabled, Helio performs warping analysis during simulations."
+msgstr "启用后，Helio 将在模拟过程中进行翘曲分析。"
+
+#: src/slic3r/GUI/Preferences.cpp
+msgid "When enabled, Helio performs warping analysis during simulations and optimizations"
+msgstr "启用后，Helio 将在模拟和优化过程中进行翘曲分析"
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Warping risk"
+msgstr "翘曲风险"
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Hull shrinkage"
+msgstr "外壳收缩"
+
 #~ msgid "Adjust filament matching"
 #~ msgstr "调整耗材匹配"
 

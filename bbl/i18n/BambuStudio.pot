@@ -18806,3 +18806,24 @@ msgstr ""
 #: resources/data/helio_hints.ini: [hint: First-Time-Right Reliability]
 msgid "First-Time-Right Reliability\nLess babysitting, more predictable output. Example: a small farm running PETG parts avoids 'fail at hour 6' surprises and keeps batches on schedule."
 msgstr ""
+
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
+msgid "Experimental: Enable warping analysis"
+msgstr ""
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp
+msgid "When enabled, Helio performs warping analysis during simulations."
+msgstr ""
+
+#: src/slic3r/GUI/Preferences.cpp
+msgid "When enabled, Helio performs warping analysis during simulations and optimizations"
+msgstr ""
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Warping risk"
+msgstr ""
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Hull shrinkage"
+msgstr ""
