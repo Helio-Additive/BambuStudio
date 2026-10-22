@@ -62,13 +62,13 @@ namespace
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispZ)
             return _u8L("Warpage Z displacement (mm)");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageRisk)
-            return _u8L("Warpage risk");
+            return _u8L("Warping risk");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageTIGradient)
             return _u8L("Warpage TI gradient");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageThermalStrain)
             return _u8L("Warpage thermal strain");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage)
-            return _u8L("Warpage hull shrinkage");
+            return _u8L("Hull shrinkage");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage)
             return _u8L("Warpage layer shrinkage");
         // end helio
@@ -3318,9 +3318,9 @@ namespace Slic3r
                     append(EViewType::ThermalIndexMean);
                 }
                 if (m_gcode_result && m_p_extrusions) {
-                    for (size_t i = 0; i < 9; ++i)
-                        if (m_p_extrusions->ranges.warpage_available[i])
-                            append(EViewType(size_t(EViewType::WarpageDisplacement) + i));
+                    for (const auto type : { EViewType::WarpageRisk, EViewType::WarpageHullShrinkage })
+                        if (m_p_extrusions->ranges.warpage_available[warpage_index(type)])
+                            append(type);
                 }
                 if (is_warpage_view(m_view_type) &&
                     std::find(view_type_items.begin(), view_type_items.end(), m_view_type) == view_type_items.end())
