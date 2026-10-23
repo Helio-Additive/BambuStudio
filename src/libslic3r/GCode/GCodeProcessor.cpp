@@ -2779,6 +2779,9 @@ void GCodeProcessor::finalize(bool post_process)
             m_nozzle_diameter
         );
         m_time_processor.post_process(m_result.filename, m_result.moves, m_result.lines_ends, context);
+        // Use the same emitted-layer count as the final G-code header. The
+        // exporter's planned total_layer_count may include layers not emitted.
+        m_result.sliced_layer_count = m_layer_id;
     }
 
     m_result.pause_printing.clear();
