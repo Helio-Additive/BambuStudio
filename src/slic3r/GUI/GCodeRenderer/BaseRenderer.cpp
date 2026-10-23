@@ -1,6 +1,8 @@
 #include "BaseRenderer.hpp"
 #include "slic3r/GUI/IMSlider.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
+#include "slic3r/GUI/Plater.hpp"
+#include "slic3r/GUI/GLCanvas3D.hpp"
 #include "slic3r/GUI/GUI_Utils.hpp"
 #include "slic3r/GUI/MsgDialog.hpp"
 #include "slic3r/GUI/FilamentGroupPopup.hpp"
@@ -51,6 +53,24 @@ namespace
             return _u8L("Thermal Index (max)");
         else if (view_type == Slic3r::GUI::gcode::EViewType::ThermalIndexMean)
             return _u8L("Thermal Index (mean)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDisplacement)
+            return _u8L("Warpage displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispX)
+            return _u8L("Warpage X displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispY)
+            return _u8L("Warpage Y displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispZ)
+            return _u8L("Warpage Z displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageRisk)
+            return _u8L("Warping risk");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageTIGradient)
+            return _u8L("Warpage TI gradient");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageThermalStrain)
+            return _u8L("Warpage thermal strain");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage)
+            return _u8L("Hull shrinkage");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage)
+            return _u8L("Warpage layer shrinkage");
         // end helio
         return "";
     }
@@ -201,6 +221,8 @@ namespace Slic3r
             {
                 m_moves_slider = new IMSlider(0, 0, 0, 100, wxSL_HORIZONTAL);
                 m_layers_slider = new IMSlider(0, 0, 0, 100, wxSL_VERTICAL);
+                m_moves_slider->set_request_canvas_focus([]() { wxGetApp().plater()->get_current_canvas3D()->force_set_focus(); });
+                m_layers_slider->set_request_canvas_focus([]() { wxGetApp().plater()->get_current_canvas3D()->force_set_focus(); });
                 m_p_extrusions = std::make_shared<Extrusions>();
                 m_p_extrusions->reset_role_visibility_flags();
                 if (GUI::wxGetApp().app_config->get_bool("enable_record_gcodeviewer_option_item")) {
@@ -589,6 +611,7 @@ namespace Slic3r
                     m_custom_gcode_per_print_z = gcode_result.custom_gcode_per_print_z;
                 m_max_print_height = gcode_result.printable_height;
                 bool rt = load_toolpaths(gcode_result, build_volume, exclude_bounding_box);
+                m_p_extrusions->ranges.load_warpage(gcode_result);
                 //BBS: add mutex for protection of gcode result
                 if (!rt) {
                     gcode_result.unlock();
@@ -1172,7 +1195,7 @@ namespace Slic3r
             {
                 if (m_view_type == EViewType::ThermalIndexMin ||
                     m_view_type == EViewType::ThermalIndexMax ||
-                    m_view_type == EViewType::ThermalIndexMean)
+                    m_view_type == EViewType::ThermalIndexMean || is_warpage_view(m_view_type))
                     return true;
                 return false;
             }
@@ -1320,6 +1343,7 @@ namespace Slic3r
                 m_statistics.refresh_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time).count();
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
                 //BBS: add mutex for protection of gcode result
+                m_p_extrusions->ranges.load_warpage(gcode_result);
                 gcode_result.unlock();
                 update_option_item_when_load_gcode();
             }
@@ -2011,6 +2035,16 @@ namespace Slic3r
                     break;
                 }
                 // helio
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                    imgui.title(get_view_type_string(m_view_type)); break;
                 case EViewType::ThermalIndexMin: { imgui.title(_u8L("Thermal Index (min)")); break; }
                 case EViewType::ThermalIndexMax: { imgui.title(_u8L("Thermal Index (max)")); break; }
                 case EViewType::ThermalIndexMean: { imgui.title(_u8L("Thermal Index (mean)")); break; }
@@ -2075,6 +2109,7 @@ namespace Slic3r
                             columns_offsets.push_back({ travel_percent, offsets[2] });
                             append_item(EItemType::Rect, Travel_Colors[0], columns_offsets, true, visible, [this, item, visible]() {
                                 set_move_type_visible(item, !visible);
+                                refresh(*m_gcode_result, wxGetApp().plater()->get_extruder_colors_from_plater_config(m_gcode_result));
                                 on_visibility_changed();
                                 });
                         }
@@ -2260,6 +2295,16 @@ namespace Slic3r
                     break;
                 }
                 // helio
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                    append_range(m_p_extrusions->ranges.warpage[warpage_index(m_view_type)], 4); break;
                 case EViewType::ThermalIndexMin:
                 case EViewType::ThermalIndexMax:
                 case EViewType::ThermalIndexMean: {
@@ -3131,6 +3176,19 @@ namespace Slic3r
                     _max = m_p_extrusions->ranges.temperature.max;
                     return true;
                 }
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                {
+                    const auto& range = m_p_extrusions->ranges.warpage[warpage_index(EViewType(index))];
+                    _min = range.min; _max = range.max; return true;
+                }
                 case EViewType::ThermalIndexMin: {
                     _min = m_p_extrusions->ranges.thermal_index_min.min;
                     _max = m_p_extrusions->ranges.thermal_index_min.max;
@@ -3237,34 +3295,39 @@ namespace Slic3r
                 options_items.push_back(EMoveType::Seam);
             }
 
-            void BaseRenderer::update_thermal_options(bool add) {
-
+            void BaseRenderer::update_thermal_options(bool add)
+            {
+                for (int i = int(view_type_items.size()) - 1; i >= 0; --i) {
+                    const auto type = view_type_items[i];
+                    if (type >= EViewType::ThermalIndexMin && type < EViewType::Count) {
+                        view_type_items.erase(view_type_items.begin() + i);
+                        view_type_image_names.erase(view_type_image_names.begin() + i);
+                    }
+                }
+                auto append = [this](EViewType type) {
+                    // FilamentId is an internal option and stays last, without an image entry.
+                    auto it = std::find(view_type_items.begin(), view_type_items.end(), EViewType::FilamentId);
+                    const auto index = std::distance(view_type_items.begin(), it);
+                    view_type_items.insert(it, type);
+                    view_type_image_names.insert(view_type_image_names.begin() + index,
+                        {get_view_type_string(type), m_helio_icon_texture, m_helio_icon_dark_texture});
+                };
                 if (add) {
-                    for (int i = view_type_items.size() - 1; i >= 0; i--) {
-                        if (view_type_items[i] == EViewType::ThermalIndexMean) {
-                            return;
-                        }
-                    }
-                    view_type_items.pop_back();//delete EViewType::FilamentId
-                    auto index = view_type_items.size();
-
-                    view_type_items.push_back(EViewType::ThermalIndexMin);
-                    view_type_items.push_back(EViewType::ThermalIndexMax);
-                    view_type_items.push_back(EViewType::ThermalIndexMean);
-                    for (int i = index; i < view_type_items.size(); i++) {
-                        ImageName temp = { get_view_type_string(view_type_items[i]), m_helio_icon_texture, m_helio_icon_dark_texture };
-                        view_type_image_names.push_back(temp);
-                    }
-                    view_type_items.push_back(EViewType::FilamentId);
+                    append(EViewType::ThermalIndexMin);
+                    append(EViewType::ThermalIndexMax);
+                    append(EViewType::ThermalIndexMean);
                 }
-                else {
-                    for (int i = view_type_items.size() - 1; i >= 0; i--) {
-                        if (view_type_items[i] == EViewType::ThermalIndexMean || view_type_items[i] == EViewType::ThermalIndexMin || view_type_items[i] == EViewType::ThermalIndexMax) {
-                            view_type_items.erase(view_type_items.begin() + i);
-                            view_type_image_names.erase(view_type_image_names.begin() + i);
-                        }
-                    }
+                if (m_gcode_result && m_p_extrusions) {
+                    for (const auto type : { EViewType::WarpageRisk, EViewType::WarpageHullShrinkage })
+                        if (m_p_extrusions->ranges.warpage_available[warpage_index(type)])
+                            append(type);
                 }
+                if (is_warpage_view(m_view_type) &&
+                    std::find(view_type_items.begin(), view_type_items.end(), m_view_type) == view_type_items.end())
+                    update_default_view_type();
+                const auto selected = std::find(view_type_items.begin(), view_type_items.end(), m_view_type);
+                if (selected != view_type_items.end())
+                    m_view_type_sel = std::distance(view_type_items.begin(), selected);
             }
 
             GCodeWindow::GCodeWindow()
@@ -3786,6 +3849,22 @@ namespace Slic3r
                         break;
                     }
                     // helio
+                    case EViewType::WarpageDisplacement:
+                    case EViewType::WarpageDispX:
+                    case EViewType::WarpageDispY:
+                    case EViewType::WarpageDispZ:
+                    case EViewType::WarpageRisk:
+                    case EViewType::WarpageTIGradient:
+                    case EViewType::WarpageThermalStrain:
+                    case EViewType::WarpageHullShrinkage:
+                    case EViewType::WarpageLayerShrinkage:
+                    {
+                        const float value = m_curr_move.warpage_values()[warpage_index(view_type)];
+                        if (std::isfinite(value)) sprintf(buf, "%.4f", value);
+                        else sprintf(buf, "%s", _u8L("N/A").c_str());
+                        imgui.text(buf);
+                        break;
+                    }
                     case EViewType::ThermalIndexMin:
                     case EViewType::ThermalIndexMax:
                     case EViewType::ThermalIndexMean:
@@ -3866,8 +3945,42 @@ namespace Slic3r
                 gcode_window.render(legend_height, (float)canvas_height, (float)canvas_width - (float)right_margin, static_cast<uint64_t>(gcode_ids[current.last]), cb, b_show_horizon_slider, b_helio_option);
             }
 
+            void Ranges::load_warpage(const GCodeProcessorResult& result)
+            {
+                const std::vector<ColorRGBA> sequential = {
+                    {30/255.f,180/255.f,60/255.f,1.f}, {140/255.f,190/255.f,40/255.f,1.f},
+                    {220/255.f,180/255.f,30/255.f,1.f}, {230/255.f,100/255.f,20/255.f,1.f},
+                    {200/255.f,20/255.f,20/255.f,1.f}};
+                const std::vector<ColorRGBA> diverging = {
+                    {0.f,60/255.f,200/255.f,1.f}, {30/255.f,180/255.f,60/255.f,1.f},
+                    {200/255.f,20/255.f,20/255.f,1.f}};
+                warpage_available.fill(false);
+                for (size_t i = 0; i < warpage.size(); ++i)
+                    warpage[i] = Range(i == 1 || i == 2 || i == 5 ? diverging : sequential);
+                warpage[4] = Range(0.f, 1.f, sequential);
+                warpage[7] = Range(0.f, 1.f, sequential);
+                warpage[3].update_from(0.f);
+                if (std::isfinite(result.warpage_wdm_p95) && result.warpage_wdm_p95 > 0.f) {
+                    const float p95 = result.warpage_wdm_p95;
+                    warpage[0] = Range(0.f, p95, sequential);
+                    warpage[1] = Range(-p95, p95, diverging);
+                    warpage[2] = Range(-p95, p95, diverging);
+                    warpage[3] = Range(0.f, p95, sequential);
+                }
+                for (const auto& move : result.moves) {
+                    if (move.type != EMoveType::Extrude) continue;
+                    const auto values = move.warpage_values();
+                    for (size_t i = 0; i < values.size(); ++i) {
+                        if (!std::isfinite(values[i])) continue;
+                        warpage_available[i] = true;
+                        if (i != 3 || values[i] >= 0.f) warpage[i].update_from(values[i]);
+                    }
+                }
+            }
+
             ColorRGBA Range::get_color_at(float value, EType type) const
             {
+                if (!std::isfinite(value)) return ColorRGBA::GRAY();
                 float       global_t = 0.0f;
                 const float step = step_size(type);
                 float       _min = min;
