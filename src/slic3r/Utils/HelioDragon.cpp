@@ -1410,10 +1410,9 @@ std::string HelioQuery::generate_simulation_graphql_query(const std::string &gco
 
     std::vector<std::string> settings_fields;
 
-    // Keep the disabled path compatible with regional API schemas that predate
-    // the experimental setting. An omitted field retains the server default.
-    if (enableWarpingAnalysis)
-        settings_fields.emplace_back(R"(                    "enableWarpingAnalysis": true)");
+    // Always send the selected state: omission leaves the server default in effect.
+    settings_fields.emplace_back(std::string(R"("enableWarpingAnalysis": )") +
+                                 (enableWarpingAnalysis ? "true" : "false"));
 
     if (temperatureStabilizationHeight != -1) {
         settings_fields.push_back(boost::str(boost::format(R"(                    "temperatureStabilizationHeight": %1%)") % temperatureStabilizationHeight));
@@ -1473,10 +1472,9 @@ std::string HelioQuery::generate_optimization_graphql_query(const std::string& g
 
     // Step 1.SimulationSettingsInput
     std::vector<std::string> simulation_fields;
-    // As with standalone simulations, omit the experimental field while disabled
-    // so optimization remains compatible with regional schemas that predate it.
-    if (enableWarpingAnalysis)
-        simulation_fields.emplace_back(R"("enableWarpingAnalysis": true)");
+    // Disabling analysis must override the server default, just as simulations do.
+    simulation_fields.emplace_back(std::string(R"("enableWarpingAnalysis": )") +
+                                   (enableWarpingAnalysis ? "true" : "false"));
 
     if (temperatureStabilizationHeight != -1) {
         simulation_fields.push_back(boost::str(boost::format(R"("temperatureStabilizationHeight": %1%)") % temperatureStabilizationHeight));
