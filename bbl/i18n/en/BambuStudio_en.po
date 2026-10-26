@@ -22249,3 +22249,27 @@ msgstr ""
 
 #~ msgid "⌥+Left mouse button"
 #~ msgstr "⌥+Left mouse button"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Preview G-code"
+msgstr "Download Preview G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Print G-code"
+msgstr "Download Print G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Preview G-code"
+msgstr "Save Preview G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Print G-code"
+msgstr "Save Print G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code for printing."
+msgstr "G-code for printing."
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code with analysis annotations for preview."
+msgstr "G-code with analysis annotations for preview."

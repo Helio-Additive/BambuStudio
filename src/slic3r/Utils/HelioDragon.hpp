@@ -250,6 +250,7 @@ public:
         std::string status;
         std::string gcode_url;
         std::string gcode_key;
+        std::string optimized_gcode_url;  // Printable optimized G-code, without preview annotations
         std::string optimized_gcode_with_thermal_indexes_url;  // Thermal index enhanced GCode URL
         std::string printer_id;
         std::string printer_name;

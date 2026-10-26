@@ -18827,3 +18827,27 @@ msgstr ""
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
 msgid "Hull shrinkage"
 msgstr ""
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Preview G-code"
+msgstr ""
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Print G-code"
+msgstr ""
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Preview G-code"
+msgstr ""
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Print G-code"
+msgstr ""
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code for printing."
+msgstr ""
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code with analysis annotations for preview."
+msgstr ""

@@ -28066,3 +28066,27 @@ msgstr "收缩纹路"
 
 #~ msgid "Start the application"
 #~ msgstr "启动应用程序"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Preview G-code"
+msgstr "下载预览 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Print G-code"
+msgstr "下载打印 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Preview G-code"
+msgstr "保存预览 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Print G-code"
+msgstr "保存打印 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code for printing."
+msgstr "用于打印的 G-code。"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code with analysis annotations for preview."
+msgstr "带有分析标注、用于预览的 G-code。"
