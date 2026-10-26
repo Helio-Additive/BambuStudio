@@ -277,7 +277,7 @@ namespace Slic3r {
             unsigned int layer_id{0};
         };
 
-        // Actual emitted layers, set during local export post-processing.
+        // Actual emitted layers, set when export or file parsing is finalized.
         // Matches the final G-code header; not a planned or render-layer count.
         unsigned int sliced_layer_count = 0;
         std::string filename;
@@ -349,6 +349,7 @@ namespace Slic3r {
         mutable std::mutex result_mutex;
         GCodeProcessorResult& operator=(const GCodeProcessorResult &other)
         {
+            sliced_layer_count = other.sliced_layer_count;
             filename = other.filename;
             id = other.id;
             moves = other.moves;

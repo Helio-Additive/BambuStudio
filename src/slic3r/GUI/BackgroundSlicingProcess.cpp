@@ -876,6 +876,7 @@ void BackgroundSlicingProcess::finalize_gcode()
         GCodeProcessorResult&& reparsed = processor.extract_result();
         m_gcode_result->moves      = std::move(reparsed.moves);
         m_gcode_result->lines_ends = std::move(reparsed.lines_ends);
+        m_gcode_result->sliced_layer_count = reparsed.sliced_layer_count;
     }
 
     m_print->set_status(100, _utf8(L("Successfully executed post-processing script")));

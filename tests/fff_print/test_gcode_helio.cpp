@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -76,7 +77,83 @@ const GCodeProcessorResult::MoveVertex& extrusion_at(const std::vector<GCodeProc
     return *it;
 }
 
+std::string layer_count_regression_gcode()
+{
+    std::ostringstream output;
+    output << ";_GP_TOTAL_LAYER_NUMBER_PLACEHOLDER\nM83\n";
+    // The reported file emits 632 layers, but its per-layer placeholder
+    // retains the planned count of 635. Z hops must not add logical layers.
+    for (unsigned int layer = 1; layer <= 632; ++layer) {
+        output << "; CHANGE_LAYER\n; layer num/total_layer_count: " << layer << "/635\n"
+               << "G1 Z" << layer * 0.08 + 0.12 << "\n"
+               << "G1 X10 E1\nG1 Z60\nG1 X20\n"
+               << "G1 Z" << layer * 0.08 + 0.12 << "\nG1 X30 E1\n";
+    }
+    return output.str();
+}
+
 } // namespace
+
+TEST_CASE("Helio layer counts survive local export and result assignment", "[GCode][Helio]")
+{
+    const ScopedPrinterTagMode tag_mode(true);
+    FullPrintConfig config;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+    ScopedTemporaryFile temp(".gcode");
+    const std::string gcode = layer_count_regression_gcode();
+    {
+        std::ofstream output(temp.string());
+        output << gcode;
+    }
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.initialize(temp.string());
+    processor.initialize_from_context(std::make_shared<MultiNozzleUtils::LayeredNozzleGroupResult>());
+    processor.process_buffer(gcode);
+    processor.finalize(true);
+    auto&& exported = processor.extract_result();
+    REQUIRE(exported.sliced_layer_count == 632);
+
+    std::ifstream output(temp.string());
+    std::string header;
+    std::getline(output, header);
+    CHECK(header == "; total layer number: 632");
+
+    GCodeProcessorResult plate_result;
+    plate_result = std::move(exported);
+    CHECK(plate_result.sliced_layer_count == 632);
+}
+
+TEST_CASE("Helio layer counts survive file loading and result assignment", "[GCode][Helio]")
+{
+    const ScopedPrinterTagMode tag_mode(true);
+    FullPrintConfig config;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+    ScopedTemporaryFile temp(".gcode");
+    {
+        std::ofstream output(temp.string());
+        output << layer_count_regression_gcode();
+    }
+
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.process_file(temp.string());
+    auto&& parsed = processor.extract_result();
+    REQUIRE(parsed.sliced_layer_count == 632);
+
+    GCodeProcessorResult plate_result;
+    plate_result = std::move(parsed); // Same assignment as local export/load.
+    CHECK(plate_result.sliced_layer_count == 632);
+
+    GCodeProcessorResult preview_result;
+    preview_result = plate_result;
+    CHECK(preview_result.sliced_layer_count == 632);
+
+    plate_result.reset();
+    CHECK(plate_result.sliced_layer_count == 0);
+    preview_result = plate_result;
+    CHECK(preview_result.sliced_layer_count == 0);
+}
 
 TEST_CASE("A following Helio comment adds warpage data to the current path", "[GCode][Helio]")
 {
