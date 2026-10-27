@@ -18821,7 +18821,7 @@ msgid "When enabled, Helio performs warping analysis during simulations and opti
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Warping risk"
+msgid "Residual stress"
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp

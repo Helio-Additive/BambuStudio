@@ -19441,8 +19441,8 @@ msgid "When enabled, Helio performs warping analysis during simulations and opti
 msgstr "启用后，Helio 将在模拟和优化过程中进行翘曲分析"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Warping risk"
-msgstr "翘曲风险"
+msgid "Residual stress"
+msgstr "残余应力"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
 msgid "Hull shrinkage"

@@ -62,7 +62,7 @@ namespace
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispZ)
             return _u8L("Warpage Z displacement (mm)");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageRisk)
-            return _u8L("Warping risk");
+            return _u8L("Residual stress");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageTIGradient)
             return _u8L("Warpage TI gradient");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageThermalStrain)
