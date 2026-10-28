@@ -19152,8 +19152,24 @@ msgid ""
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Residual stress"
-msgstr "Residual stress"
+msgid "Residual stress index"
+msgstr "Residual stress index"
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Hull shrinkage index"
+msgstr "Hull shrinkage index"
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
+msgid "Experimental: Enable residual stress analysis"
+msgstr "Experimental: Enable residual stress analysis"
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp
+msgid "When enabled, Helio performs residual stress analysis during simulations."
+msgstr "When enabled, Helio performs residual stress analysis during simulations."
+
+#: src/slic3r/GUI/Preferences.cpp
+msgid "When enabled, Helio performs residual stress analysis during simulations and optimizations"
+msgstr "When enabled, Helio performs residual stress analysis during simulations and optimizations"
 
 #~ msgid "Show Labels"
 #~ msgstr "Show Labels"

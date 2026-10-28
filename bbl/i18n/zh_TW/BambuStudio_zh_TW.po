@@ -19426,24 +19426,24 @@ msgstr ""
 
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
-msgid "Experimental: Enable warping analysis"
-msgstr "實驗性：啟用翹曲分析"
+msgid "Experimental: Enable residual stress analysis"
+msgstr "實驗性：啟用殘餘應力分析"
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp
-msgid "When enabled, Helio performs warping analysis during simulations."
-msgstr "啟用後，Helio 將在模擬過程中進行翹曲分析。"
+msgid "When enabled, Helio performs residual stress analysis during simulations."
+msgstr "啟用後，Helio 將在模擬過程中進行殘餘應力分析。"
 
 #: src/slic3r/GUI/Preferences.cpp
-msgid "When enabled, Helio performs warping analysis during simulations and optimizations"
-msgstr "啟用後，Helio 將在模擬和最佳化過程中進行翹曲分析"
+msgid "When enabled, Helio performs residual stress analysis during simulations and optimizations"
+msgstr "啟用後，Helio 將在模擬和最佳化過程中進行殘餘應力分析"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Residual stress"
-msgstr "殘餘應力"
+msgid "Residual stress index"
+msgstr "殘餘應力指數"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Hull shrinkage"
-msgstr "收縮紋路"
+msgid "Hull shrinkage index"
+msgstr "收縮紋路指數"
 
 #~ msgid "Previous"
 #~ msgstr "上一步"

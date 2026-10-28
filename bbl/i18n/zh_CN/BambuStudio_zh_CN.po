@@ -19429,24 +19429,24 @@ msgstr ""
 
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
-msgid "Experimental: Enable warping analysis"
-msgstr "实验性：启用翘曲分析"
+msgid "Experimental: Enable residual stress analysis"
+msgstr "实验性：启用残余应力分析"
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp
-msgid "When enabled, Helio performs warping analysis during simulations."
-msgstr "启用后，Helio 将在模拟过程中进行翘曲分析。"
+msgid "When enabled, Helio performs residual stress analysis during simulations."
+msgstr "启用后，Helio 将在模拟过程中进行残余应力分析。"
 
 #: src/slic3r/GUI/Preferences.cpp
-msgid "When enabled, Helio performs warping analysis during simulations and optimizations"
-msgstr "启用后，Helio 将在模拟和优化过程中进行翘曲分析"
+msgid "When enabled, Helio performs residual stress analysis during simulations and optimizations"
+msgstr "启用后，Helio 将在模拟和优化过程中进行残余应力分析"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Residual stress"
-msgstr "残余应力"
+msgid "Residual stress index"
+msgstr "残余应力指数"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Hull shrinkage"
-msgstr "收缩纹路"
+msgid "Hull shrinkage index"
+msgstr "收缩纹路指数"
 
 #~ msgid "Adjust filament matching"
 #~ msgstr "调整耗材匹配"

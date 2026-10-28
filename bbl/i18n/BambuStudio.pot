@@ -18809,23 +18809,23 @@ msgstr ""
 
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
-msgid "Experimental: Enable warping analysis"
+msgid "Experimental: Enable residual stress analysis"
 msgstr ""
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp
-msgid "When enabled, Helio performs warping analysis during simulations."
+msgid "When enabled, Helio performs residual stress analysis during simulations."
 msgstr ""
 
 #: src/slic3r/GUI/Preferences.cpp
-msgid "When enabled, Helio performs warping analysis during simulations and optimizations"
+msgid "When enabled, Helio performs residual stress analysis during simulations and optimizations"
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Residual stress"
+msgid "Residual stress index"
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Hull shrinkage"
+msgid "Hull shrinkage index"
 msgstr ""
 
 #: src/slic3r/GUI/HelioHistoryDialog.cpp

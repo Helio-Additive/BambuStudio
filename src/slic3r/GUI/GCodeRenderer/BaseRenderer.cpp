@@ -62,13 +62,13 @@ namespace
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispZ)
             return _u8L("Warpage Z displacement (mm)");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageRisk)
-            return _u8L("Residual stress");
+            return _u8L("Residual stress index");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageTIGradient)
             return _u8L("Warpage TI gradient");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageThermalStrain)
             return _u8L("Warpage thermal strain");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage)
-            return _u8L("Hull shrinkage");
+            return _u8L("Hull shrinkage index");
         else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage)
             return _u8L("Warpage layer shrinkage");
         // end helio
