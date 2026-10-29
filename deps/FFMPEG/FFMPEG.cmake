@@ -1,11 +1,29 @@
 set(_conf_cmd ./configure)
 
 if (MSVC)
+    # bambulab's ffmpeg_prebuilts are x64-only; linking them on ARM64 leaves
+    # every av*/sws* symbol unresolved. For Windows ARM64 use BtbN's winarm64
+    # shared build (pinned month-end tag, retained upstream for two years). FFmpeg 7.0/7.1 share the same
+    # library majors (avcodec-61, avutil-59, swscale-8), so the layout and DLL
+    # names match what the x64 package ships and what the code links against.
+    set(_ffmpeg_msvc_url "https://github.com/bambulab/ffmpeg_prebuilts/releases/download/7.0.2/7.0.2_msvc.zip")
+    set(_ffmpeg_msvc_hash "SHA256=DF44AE6B97CE84C720695AE7F151B4A9654915D1841C68F10D62A1189E0E7181")
+    # Generator platform takes precedence over the host processor so an ARM64
+    # host can still build x64 deps (and ARM64EC targets get the x64 package).
+    set(_ffmpeg_gen_platform "${CMAKE_GENERATOR_PLATFORM}")
+    if (NOT _ffmpeg_gen_platform)
+        set(_ffmpeg_gen_platform "${CMAKE_SYSTEM_PROCESSOR}")
+    endif ()
+    string(TOUPPER "${_ffmpeg_gen_platform}" _ffmpeg_gen_platform)
+    if (_ffmpeg_gen_platform MATCHES "^(ARM64|AARCH64)$")
+        set(_ffmpeg_msvc_url "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n7.1.5-12-g1fdbca85aa-winarm64-gpl-shared-7.1.zip")
+        set(_ffmpeg_msvc_hash "SHA256=717ed0a06dcdf1b4aee835615d8dcd968b268f89035bf1aba75d055661d29b9f")
+    endif ()
     set(_dstdir ${DESTDIR}/usr/local)
     set(_source_dir "${CMAKE_BINARY_DIR}/dep_FFMPEG-prefix/src/dep_FFMPEG")
     ExternalProject_Add(dep_FFMPEG
-        URL https://github.com/bambulab/ffmpeg_prebuilts/releases/download/7.0.2/7.0.2_msvc.zip
-        URL_HASH SHA256=DF44AE6B97CE84C720695AE7F151B4A9654915D1841C68F10D62A1189E0E7181
+        URL ${_ffmpeg_msvc_url}
+        URL_HASH ${_ffmpeg_msvc_hash}
         DOWNLOAD_DIR ${DEP_DOWNLOAD_DIR}/FFMPEG
         CONFIGURE_COMMAND ""
         BUILD_COMMAND ""
