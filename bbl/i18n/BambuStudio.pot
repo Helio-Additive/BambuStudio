@@ -18821,11 +18821,11 @@ msgid "When enabled, Helio performs residual stress analysis during simulations 
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Residual stress index"
+msgid "Residual Stress Index"
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Hull shrinkage index"
+msgid "Hull Shrinkage Index"
 msgstr ""
 
 #: src/slic3r/GUI/HelioHistoryDialog.cpp

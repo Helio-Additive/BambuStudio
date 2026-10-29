@@ -19152,12 +19152,12 @@ msgid ""
 msgstr ""
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Residual stress index"
-msgstr "Residual stress index"
+msgid "Residual Stress Index"
+msgstr "Residual Stress Index"
 
 #: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
-msgid "Hull shrinkage index"
-msgstr "Hull shrinkage index"
+msgid "Hull Shrinkage Index"
+msgstr "Hull Shrinkage Index"
 
 #: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
 msgid "Experimental: Enable residual stress analysis"
