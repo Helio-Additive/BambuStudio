@@ -1,0 +1,274 @@
+#include <catch2/catch.hpp>
+#include <boost/filesystem.hpp>
+
+#include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/PrintConfig.hpp"
+
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+using namespace Slic3r;
+using Catch::Matchers::WithinAbs;
+
+namespace {
+
+class ScopedTemporaryFile {
+    boost::filesystem::path path_;
+public:
+    explicit ScopedTemporaryFile(const char* suffix)
+        : path_(boost::filesystem::temp_directory_path() / boost::filesystem::unique_path(std::string("helio-%%%%-%%%%") + suffix)) {}
+    ~ScopedTemporaryFile() { boost::system::error_code ec; boost::filesystem::remove(path_, ec); }
+    std::string string() const { return path_.string(); }
+};
+
+
+class ScopedPrinterTagMode
+{
+public:
+    explicit ScopedPrinterTagMode(bool bbl) : m_previous(std::exchange(GCodeProcessor::s_IsBBLPrinter, bbl)) {}
+    ~ScopedPrinterTagMode() { GCodeProcessor::s_IsBBLPrinter = m_previous; }
+    ScopedPrinterTagMode(const ScopedPrinterTagMode&) = delete;
+    ScopedPrinterTagMode& operator=(const ScopedPrinterTagMode&) = delete;
+private:
+    bool m_previous;
+};
+
+std::vector<GCodeProcessorResult::MoveVertex> process_gcode(const char* gcode, bool* is_helio_gcode = nullptr,
+              std::array<float, 2>* percentiles = nullptr)
+{
+    // Other tests change this shared tag mode (for example WipeTower2).
+    // These fixtures use BBL tags; restore the caller's mode even on exceptions.
+    const ScopedPrinterTagMode tag_mode(true);
+    FullPrintConfig config;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+
+    ScopedTemporaryFile temp(".gcode");
+    {
+        std::ofstream output(temp.string());
+        output << gcode;
+    }
+
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.process_file(temp.string());
+    // GCodeProcessorResult holds a std::mutex, so it is neither copyable nor movable;
+    // bind the returned rvalue reference instead of constructing a local copy.
+    auto&& result = processor.extract_result();
+    if (is_helio_gcode != nullptr)
+        *is_helio_gcode = result.is_helio_gcode;
+    if (percentiles != nullptr)
+        *percentiles = { result.warpage_wdm_p95, result.warpage_whs_p95 };
+    return std::move(result.moves);
+}
+
+const GCodeProcessorResult::MoveVertex& extrusion_at(const std::vector<GCodeProcessorResult::MoveVertex>& moves, float x)
+{
+    const auto it = std::find_if(moves.begin(), moves.end(), [x](const auto& move) {
+        return move.type == EMoveType::Extrude && std::abs(move.position.x() - x) < 0.001f;
+    });
+    REQUIRE(it != moves.end());
+    return *it;
+}
+
+std::string layer_count_regression_gcode()
+{
+    std::ostringstream output;
+    output << ";_GP_TOTAL_LAYER_NUMBER_PLACEHOLDER\nM83\n";
+    // The reported file emits 632 layers, but its per-layer placeholder
+    // retains the planned count of 635. Z hops must not add logical layers.
+    for (unsigned int layer = 1; layer <= 632; ++layer) {
+        output << "; CHANGE_LAYER\n; layer num/total_layer_count: " << layer << "/635\n"
+               << "G1 Z" << layer * 0.08 + 0.12 << "\n"
+               << "G1 X10 E1\nG1 Z60\nG1 X20\n"
+               << "G1 Z" << layer * 0.08 + 0.12 << "\nG1 X30 E1\n";
+    }
+    return output.str();
+}
+
+} // namespace
+
+TEST_CASE("Helio layer counts survive local export and result assignment", "[GCode][Helio]")
+{
+    const ScopedPrinterTagMode tag_mode(true);
+    FullPrintConfig config;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+    ScopedTemporaryFile temp(".gcode");
+    const std::string gcode = layer_count_regression_gcode();
+    {
+        std::ofstream output(temp.string());
+        output << gcode;
+    }
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.initialize(temp.string());
+    processor.initialize_from_context(std::make_shared<MultiNozzleUtils::LayeredNozzleGroupResult>());
+    processor.process_buffer(gcode);
+    processor.finalize(true);
+    auto&& exported = processor.extract_result();
+    REQUIRE(exported.sliced_layer_count == 632);
+
+    std::ifstream output(temp.string());
+    std::string header;
+    std::getline(output, header);
+    CHECK(header == "; total layer number: 632");
+
+    GCodeProcessorResult plate_result;
+    plate_result = std::move(exported);
+    CHECK(plate_result.sliced_layer_count == 632);
+}
+
+TEST_CASE("Helio layer counts survive file loading and result assignment", "[GCode][Helio]")
+{
+    const ScopedPrinterTagMode tag_mode(true);
+    FullPrintConfig config;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+    ScopedTemporaryFile temp(".gcode");
+    {
+        std::ofstream output(temp.string());
+        output << layer_count_regression_gcode();
+    }
+
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.process_file(temp.string());
+    auto&& parsed = processor.extract_result();
+    REQUIRE(parsed.sliced_layer_count == 632);
+
+    GCodeProcessorResult plate_result;
+    plate_result = std::move(parsed); // Same assignment as local export/load.
+    CHECK(plate_result.sliced_layer_count == 632);
+
+    GCodeProcessorResult preview_result;
+    preview_result = plate_result;
+    CHECK(preview_result.sliced_layer_count == 632);
+
+    plate_result.reset();
+    CHECK(plate_result.sliced_layer_count == 0);
+    preview_result = plate_result;
+    CHECK(preview_result.sliced_layer_count == 0);
+}
+
+TEST_CASE("A following Helio comment adds warpage data to the current path", "[GCode][Helio]")
+{
+    const auto moves = process_gcode(
+        "M83\n"
+        "G1 X10 E1 ;helioadditive=(ti.max=0.80,ti.min=0.20,ti.mean=0.40,element.index=10)\n"
+        ";helioadditive=(wdm=0.0231,wdx=-0.0012,wdy=0.0046,wdz=0.0227,wr=0.422,wtg=-12.3457,wts=0.009449,whs=0.0187,wls=0.009449,element.index=42)\n"
+        "G1 X20 E1 ;helioadditive=ti.max=0.9,ti.min=0.8,ti.mean=0.85\n"
+        "; unrelated comment\n"
+        ";helioadditive=wdm=1.0\n"
+        "G1 X30 E1\n"
+        ";helioadditive=whs=0.2110\n"
+        "G1 X40 E1 ;helioadditive=(ti.max=0.7,ti.min=0.3,ti.mean=0.5,element.index=40)\n"
+        "  ;helioadditive=(wdm=0.04,wls=0.004)\n"
+        "G1 X50 E1 ;helioadditive=(wdx=0.05,wdy=0.06)\n"
+        ";helioadditive=(wr=0.7)\n"
+        "G1 X60 E1 ;helioadditive=(wdm=inf,wdx=0.08,wdy=-inf)\n"
+        ";helioadditive=(wdx=nan,wr=inf)\n");
+
+    const auto& annotated = extrusion_at(moves, 10.0f);
+    CHECK_THAT(annotated.thermal_index_max, WithinAbs(80.0f, 0.001f));
+    CHECK_THAT(annotated.thermal_index_min, WithinAbs(20.0f, 0.001f));
+    CHECK_THAT(annotated.thermal_index_mean, WithinAbs(40.0f, 0.001f));
+    CHECK_THAT(annotated.warpage_displacement, WithinAbs(0.0231f, 0.000001f));
+    CHECK_THAT(annotated.warpage_disp_x, WithinAbs(-0.0012f, 0.000001f));
+    CHECK_THAT(annotated.warpage_disp_y, WithinAbs(0.0046f, 0.000001f));
+    CHECK_THAT(annotated.warpage_disp_z, WithinAbs(0.0227f, 0.000001f));
+    CHECK_THAT(annotated.warpage_risk, WithinAbs(0.422f, 0.000001f));
+    CHECK_THAT(annotated.warpage_ti_gradient, WithinAbs(-12.3457f, 0.000001f));
+    CHECK_THAT(annotated.warpage_thermal_strain, WithinAbs(0.009449f, 0.000001f));
+    CHECK_THAT(annotated.warpage_hull_shrinkage, WithinAbs(0.0187f, 0.000001f));
+    CHECK_THAT(annotated.warpage_layer_shrinkage, WithinAbs(0.009449f, 0.000001f));
+
+    const auto& separated = extrusion_at(moves, 20.0f);
+    CHECK_THAT(separated.thermal_index_mean, WithinAbs(85.0f, 0.001f));
+    CHECK(std::isnan(separated.warpage_displacement));
+
+    const auto& partially_backfilled = extrusion_at(moves, 50.0f);
+    CHECK_THAT(partially_backfilled.warpage_disp_x, WithinAbs(0.05f, 0.000001f));
+    CHECK_THAT(partially_backfilled.warpage_disp_y, WithinAbs(0.06f, 0.000001f));
+    CHECK_THAT(partially_backfilled.warpage_risk, WithinAbs(0.7f, 0.000001f));
+
+    const auto& non_finite = extrusion_at(moves, 60.0f);
+    CHECK(std::isnan(non_finite.warpage_displacement));
+    CHECK_THAT(non_finite.warpage_disp_x, WithinAbs(0.08f, 0.000001f));
+    CHECK(std::isnan(non_finite.warpage_disp_y));
+    CHECK(std::isnan(non_finite.warpage_risk));
+
+    const auto& warpage_only = extrusion_at(moves, 30.0f);
+    CHECK_THAT(warpage_only.warpage_hull_shrinkage, WithinAbs(0.2110f, 0.000001f));
+    CHECK(warpage_only.thermal_index_mean < -100.0f);
+
+    const auto& indented = extrusion_at(moves, 40.0f);
+    CHECK_THAT(indented.thermal_index_mean, WithinAbs(50.0f, 0.001f));
+    CHECK_THAT(indented.warpage_displacement, WithinAbs(0.04f, 0.000001f));
+    CHECK_THAT(indented.warpage_layer_shrinkage, WithinAbs(0.004f, 0.000001f));
+}
+
+TEST_CASE("Warpage-only metadata identifies Helio G-code", "[GCode][Helio]")
+{
+    bool       is_helio_gcode = false;
+    const auto moves = process_gcode(
+        "M83\n"
+        "G1 X10 E1\n"
+        ";helioadditive=whs=0.2110\n",
+        &is_helio_gcode);
+
+    CHECK(is_helio_gcode);
+    CHECK_THAT(extrusion_at(moves, 10.0f).warpage_hull_shrinkage, WithinAbs(0.2110f, 0.000001f));
+}
+
+TEST_CASE("Standalone warpage metadata after a no-op does not annotate an event", "[GCode][Helio]")
+{
+    const auto tag = GENERATE("; COLOR_CHANGE,T0,#FF0000", "; PAUSE_PRINTING", "; CUSTOM_GCODE");
+    const std::string gcode = std::string("M83\nG1 Z0.2\n") + tag +
+        "\nG1 F1200\n;helioadditive=(whs=0.9)\n"
+        "G1 X10 E1\n;helioadditive=(whs=0.2)\n";
+    const auto moves = process_gcode(gcode.c_str());
+    size_t events = 0;
+    for (const auto& move : moves) {
+        if (move.type == EMoveType::Color_change || move.type == EMoveType::Pause_Print ||
+            move.type == EMoveType::Custom_GCode) {
+            ++events;
+            CHECK(std::isnan(move.warpage_hull_shrinkage));
+        }
+    }
+    REQUIRE(events == 1);
+    CHECK_THAT(extrusion_at(moves, 10.0f).warpage_hull_shrinkage, WithinAbs(0.2f, 0.000001f));
+}
+
+TEST_CASE("Warpage percentiles accept complete finite numbers", "[GCode][Helio]")
+{
+    std::array<float, 2> percentiles;
+    process_gcode("M83\nG1 X1 E1\n; WARPAGE_WDM_P95=5e-1\n; WARPAGE_WHS_P95=0.25\n", nullptr, &percentiles);
+    CHECK_THAT(percentiles[0], WithinAbs(0.5f, 0.000001f));
+    CHECK_THAT(percentiles[1], WithinAbs(0.25f, 0.000001f));
+    process_gcode("M83\nG1 X1 E1\n; WARPAGE_WDM_P95=0\n; WARPAGE_WHS_P95=0\n", nullptr, &percentiles);
+    CHECK(percentiles[0] == 0.0f);
+    CHECK(percentiles[1] == 0.0f);
+}
+
+TEST_CASE("Invalid warpage percentiles preserve the previous value", "[GCode][Helio]")
+{
+    const size_t field = GENERATE(size_t(0), size_t(1));
+    const auto invalid = GENERATE("", "abc", "0.5xyz", "nan", "inf", "-inf", "1e999");
+    const bool has_previous = GENERATE(false, true);
+    const std::string tag = field == 0 ? "; WARPAGE_WDM_P95=" : "; WARPAGE_WHS_P95=";
+    const std::string gcode = std::string("M83\nG1 X1 E1\n") +
+        (has_previous ? tag + "0.25\n" : "") + tag + invalid + "\n";
+    CAPTURE(field, invalid, has_previous);
+    std::array<float, 2> percentiles;
+    process_gcode(gcode.c_str(), nullptr, &percentiles);
+    if (has_previous)
+        CHECK_THAT(percentiles[field], WithinAbs(0.25f, 0.000001f));
+    else
+        CHECK(std::isnan(percentiles[field]));
+    CHECK(std::isnan(percentiles[1 - field]));
+}

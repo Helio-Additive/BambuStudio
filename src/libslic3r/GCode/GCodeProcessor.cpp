@@ -4,6 +4,7 @@
 #include "libslic3r/LocalesUtils.hpp"
 #include "libslic3r/format.hpp"
 #include "GCodeProcessor.hpp"
+#include "HelioMetadata.hpp"
 
 #include <boost/log/trivial.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -35,6 +36,8 @@ static const float DRAW_ARC_TOLERANCE = 0.0125f;            //0.0125mm tolerance
 static const float DEFAULT_ACCELERATION = 1500.0f; // Prusa Firmware 1_75mm_MK2
 static const float DEFAULT_RETRACT_ACCELERATION = 1500.0f; // Prusa Firmware 1_75mm_MK2
 static const float DEFAULT_TRAVEL_ACCELERATION = 1250.0f;
+
+using Slic3r::HelioMetadata::parse_warpage_fields;
 
 static const size_t MIN_EXTRUDERS_COUNT = 5;
 static const float DEFAULT_FILAMENT_DIAMETER = 1.75f;
@@ -315,6 +318,7 @@ void GCodeProcessor::TimeMachine::reset()
     extrude_factor_override_percentage = 1.0f;
     time = 0.0f;
     stop_times = std::vector<StopTime>();
+    pause_times = std::vector<StopTime>();
     curr.reset();
     prev.reset();
     gcode_time.reset();
@@ -503,10 +507,35 @@ void GCodeProcessor::TimeMachine::calculate_time(size_t keep_last_n_blocks, floa
         else
             g1_times_cache.push_back({ block.g1_line_id, time });
         // update times for remaining time to printer stop placeholders
-        auto it_stop_time = std::lower_bound(stop_times.begin(), stop_times.end(), block.g1_line_id,
-            [](const StopTime& t, unsigned int value) { return t.g1_line_id < value; });
-        if (it_stop_time != stop_times.end() && it_stop_time->g1_line_id == block.g1_line_id)
-            it_stop_time->elapsed_time = time;
+        const float elapsed_time = time;
+        auto update_elapsed_time = [block, elapsed_time](std::vector<StopTime>& times) {
+            auto it_stop_time = std::lower_bound(times.begin(), times.end(), block.g1_line_id,
+                [](const StopTime& t, unsigned int value) { return t.g1_line_id < value; });
+            if (it_stop_time != times.end() && it_stop_time->g1_line_id == block.g1_line_id)
+                it_stop_time->elapsed_time = elapsed_time;
+        };
+        update_elapsed_time(stop_times);
+        update_elapsed_time(pause_times);
+    }
+
+    for (StopTime& pause_time : pause_times) {
+        if (g1_times_cache.empty())
+            break;
+
+        auto it = std::lower_bound(g1_times_cache.begin(), g1_times_cache.end(), pause_time.g1_line_id,
+            [](const G1LinesCacheItem& item, unsigned int value) { return item.id < value; });
+        if (it == g1_times_cache.end()) {
+            pause_time.elapsed_time = g1_times_cache.back().elapsed_time;
+        }
+        else if (it == g1_times_cache.begin()) {
+            pause_time.elapsed_time = it->elapsed_time;
+        }
+        else {
+            auto prev_it = std::prev(it);
+            pause_time.elapsed_time = (pause_time.g1_line_id - prev_it->id <= it->id - pause_time.g1_line_id) ?
+                prev_it->elapsed_time :
+                it->elapsed_time;
+        }
     }
 
     m_additional_time_buffer.clear();
@@ -1488,7 +1517,11 @@ void GCodeProcessor::UsedFilaments::process_caches(GCodeProcessor* processor)
 void GCodeProcessorResult::reset() {
     //BBS: add mutex for protection of gcode result
     lock();
+    is_helio_gcode = false;
+    warpage_wdm_p95 = NAN;
+    warpage_whs_p95 = NAN;
 
+    sliced_layer_count = 0;
     moves = std::vector<GCodeProcessorResult::MoveVertex>();
     printable_area = Pointfs();
     //BBS: add bed exclude area
@@ -1498,6 +1531,7 @@ void GCodeProcessorResult::reset() {
     toolpath_outside = false;
     //BBS: add label_object_enabled
     label_object_enabled = false;
+    support_material_on_wipe_tower = false;
     timelapse_warning_code = 0;
     support_traditional_timelapse = true;
     printable_height = 0.0f;
@@ -1510,6 +1544,8 @@ void GCodeProcessorResult::reset() {
     spiral_vase_layers = std::vector<std::pair<float, std::pair<size_t, size_t>>>();
     time = 0;
     optimal_assignment.clear();
+    pause_printing.clear();
+    used_mixed_filaments.clear();
 
     //BBS: add mutex for protection of gcode result
     unlock();
@@ -1518,7 +1554,11 @@ void GCodeProcessorResult::reset() {
 void GCodeProcessorResult::reset() {
     //BBS: add mutex for protection of gcode result
     lock();
+    is_helio_gcode = false;
+    warpage_wdm_p95 = NAN;
+    warpage_whs_p95 = NAN;
 
+    sliced_layer_count = 0;
     moves.clear();
     lines_ends.clear();
     printable_area = Pointfs();
@@ -1530,6 +1570,7 @@ void GCodeProcessorResult::reset() {
     is_helio_gcode   = false;
     //BBS: add label_object_enabled
     label_object_enabled = false;
+    support_material_on_wipe_tower = false;
     long_retraction_when_cut = false;
     timelapse_warning_code = 0;
     support_traditional_timelapse = true;
@@ -1548,8 +1589,10 @@ void GCodeProcessorResult::reset() {
     filament_change_sequence.clear();
     nozzle_change_sequence.clear();
     optimal_assignment.clear();
+    pause_printing.clear();
     skippable_part_time.clear();
     warnings.clear();
+    used_mixed_filaments.clear();
 
     //BBS: add mutex for protection of gcode result
     unlock();
@@ -1945,10 +1988,6 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     m_result.filament_vitrification_temperature.resize(filament_count);
     m_result.filament_costs.resize(filament_count);
     m_extruder_temps.resize(filament_count);
-    std::vector<NozzleType>(config.nozzle_type.size()).swap(m_result.nozzle_type);
-    for (size_t idx = 0; idx < m_result.nozzle_type.size(); ++idx) {
-        m_result.nozzle_type[idx] = NozzleType(config.nozzle_type.values[idx]);
-    }
 
     std::vector<int> filament_map = config.filament_map.values; // 1 based idxs
     // if filament map has wrong length, set filament to master extruder_id
@@ -1979,8 +2018,13 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     // Filament load / unload times are not specific to a firmware flavor. Let anybody use it if they find it useful.
     // As of now the fields are shown at the UI dialog in the same combo box as the ramming values, so they
     // are considered to be active for the single extruder multi-material printers only.
-    m_time_processor.filament_load_times = static_cast<float>(config.machine_load_filament_time.value);
-    m_time_processor.filament_unload_times = static_cast<float>(config.machine_unload_filament_time.value);
+    MultiNozzleUtils::resolve_ams_load_unload(get_ams_load_times(config),
+                                              get_ams_unload_times(config),
+                                              config.default_ams_type.value,
+                                              static_cast<float>(config.machine_load_filament_time.value),
+                                              static_cast<float>(config.machine_unload_filament_time.value),
+                                              m_time_processor.filament_load_times,
+                                              m_time_processor.filament_unload_times);
     m_time_processor.extruder_change_times = static_cast<float>(config.machine_switch_extruder_time.value);
     m_time_processor.hotend_change_times = static_cast<float>(config.machine_hotend_change_time.value);
     m_time_processor.prepare_compensation_time = static_cast<float>(config.machine_prepare_compensation_time.value);
@@ -2109,14 +2153,6 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     const ConfigOptionInts* physical_extruder_map = config.option<ConfigOptionInts>("physical_extruder_map");
     if (physical_extruder_map != nullptr) {
         m_physical_extruder_map = physical_extruder_map->values;
-    }
-
-    const ConfigOptionEnumsGenericNullable* nozzle_type = config.option<ConfigOptionEnumsGenericNullable>("nozzle_type");
-    if (nozzle_type != nullptr) {
-        m_result.nozzle_type.resize(nozzle_type->size());
-        for (size_t idx = 0; idx < nozzle_type->values.size(); ++idx) {
-            m_result.nozzle_type[idx] = NozzleType(nozzle_type->values[idx]);
-        }
     }
 
     const ConfigOptionEnum<GCodeFlavor>* gcode_flavor = config.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
@@ -2307,13 +2343,22 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
 
     m_extruder_temps.resize(m_result.filaments_count);
 
-    const ConfigOptionFloat* machine_load_filament_time = config.option<ConfigOptionFloat>("machine_load_filament_time");
-    if (machine_load_filament_time != nullptr)
-        m_time_processor.filament_load_times = static_cast<float>(machine_load_filament_time->value);
-
+    const ConfigOptionFloat* machine_load_filament_time   = config.option<ConfigOptionFloat>("machine_load_filament_time");
     const ConfigOptionFloat* machine_unload_filament_time = config.option<ConfigOptionFloat>("machine_unload_filament_time");
-    if (machine_unload_filament_time != nullptr)
-        m_time_processor.filament_unload_times = static_cast<float>(machine_unload_filament_time->value);
+    {
+        float legacy_load   = (machine_load_filament_time != nullptr) ? static_cast<float>(machine_load_filament_time->value) : m_time_processor.filament_load_times;
+        float legacy_unload = (machine_unload_filament_time != nullptr) ? static_cast<float>(machine_unload_filament_time->value) : m_time_processor.filament_unload_times;
+
+        const std::vector<double> ams_load_times   = get_ams_load_times(config);
+        const std::vector<double> ams_unload_times = get_ams_unload_times(config);
+        int default_ams_type = -1;
+        if (const ConfigOptionInt* opt = config.option<ConfigOptionInt>("default_ams_type"))
+            default_ams_type = opt->value;
+
+        MultiNozzleUtils::resolve_ams_load_unload(ams_load_times, ams_unload_times, default_ams_type,
+                                                  legacy_load, legacy_unload,
+                                                  m_time_processor.filament_load_times, m_time_processor.filament_unload_times);
+    }
 
     const ConfigOptionFloat* machine_switch_extruder_time = config.option<ConfigOptionFloat>("machine_switch_extruder_time");
     if (machine_switch_extruder_time != nullptr)
@@ -2487,6 +2532,8 @@ void GCodeProcessor::reset()
     m_extrusion_role = erNone;
 
     m_is_helio_gcode   = false;
+    m_pending_helio_gcode_id.reset();
+    m_warpage_fields.fill(NAN);
     m_filament_id = {static_cast<unsigned char>(-1),static_cast<unsigned char>(-1)};
     m_last_filament_id = {static_cast<unsigned char>(-1),static_cast<unsigned char>(-1) };
     m_extruder_id = static_cast<unsigned char>(-1);
@@ -2734,6 +2781,21 @@ void GCodeProcessor::finalize(bool post_process)
         m_time_processor.post_process(m_result.filename, m_result.moves, m_result.lines_ends, context);
     }
 
+    // Preserve the logical layer count for both local export and file loading.
+    // The exporter's planned total_layer_count may include layers not emitted.
+    m_result.sliced_layer_count = m_layer_id;
+
+    m_result.pause_printing.clear();
+    const auto& normal_machine = m_time_processor.machines[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)];
+    m_result.pause_printing.reserve(normal_machine.pause_times.size());
+    for (const auto& pause_time : normal_machine.pause_times) {
+        GCodeProcessorResult::PausePrintInfo pause_info;
+        pause_info.percent = normal_machine.time > 0.0f ? int(100.0f * pause_time.elapsed_time / normal_machine.time) : 0;
+        pause_info.remaining_time = int((std::max(0.0f, normal_machine.time - pause_time.elapsed_time) + 0.5f) / 60.0f);
+        pause_info.layer_id = pause_time.layer_id;
+        m_result.pause_printing.push_back(pause_info);
+    }
+
     //update times for results
     for (size_t i = 0; i < m_result.moves.size(); i++) {
         //field layer_duration contains the layer id for the move in which the layer_duration has to be set.
@@ -2746,6 +2808,9 @@ void GCodeProcessor::finalize(bool post_process)
 #if ENABLE_GCODE_VIEWER_STATISTICS
     m_result.time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - m_start_time).count();
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
+    // Must run after post_process() above, which fills in the move times that were left at 0 during
+    // time estimation; otherwise the per-extrusion-Z slicing below would read incomplete times.
+    update_preview_layers_times_stats();
     //BBS: update slice warning
     update_slice_warnings();
 }
@@ -2940,6 +3005,36 @@ void GCodeProcessor::apply_config_simplify3d(const std::string& filename)
 void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool producers_enabled)
 {
 /* std::cout << line.raw() << std::endl; */
+    const std::string& raw = line.raw();
+    std::string_view   standalone_comment(raw);
+    const size_t       comment_begin = standalone_comment.find_first_not_of(" \t");
+    if (comment_begin != std::string_view::npos)
+        standalone_comment.remove_prefix(comment_begin);
+    const bool is_standalone_helio_comment = boost::starts_with(standalone_comment, ";helioadditive=");
+    if (m_pending_helio_gcode_id && is_standalone_helio_comment) {
+        std::array<float, 9> warpage_fields{ NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN };
+        if (parse_warpage_fields(standalone_comment.substr(sizeof(";helioadditive=") - 1), warpage_fields)) {
+            m_is_helio_gcode = true;
+            // calculate_time() may insert speed vertices while processing a move.
+            // Associate metadata by the stable G-code ID, not a saved vector index.
+            for (auto it = m_result.moves.rbegin(); it != m_result.moves.rend() &&
+                 it->gcode_id == *m_pending_helio_gcode_id; ++it) {
+                auto& move = *it;
+                if (!std::isnan(warpage_fields[0])) move.warpage_displacement    = warpage_fields[0];
+                if (!std::isnan(warpage_fields[1])) move.warpage_disp_x          = warpage_fields[1];
+                if (!std::isnan(warpage_fields[2])) move.warpage_disp_y          = warpage_fields[2];
+                if (!std::isnan(warpage_fields[3])) move.warpage_disp_z          = warpage_fields[3];
+                if (!std::isnan(warpage_fields[4])) move.warpage_risk            = warpage_fields[4];
+                if (!std::isnan(warpage_fields[5])) move.warpage_ti_gradient     = warpage_fields[5];
+                if (!std::isnan(warpage_fields[6])) move.warpage_thermal_strain  = warpage_fields[6];
+                if (!std::isnan(warpage_fields[7])) move.warpage_hull_shrinkage  = warpage_fields[7];
+                if (!std::isnan(warpage_fields[8])) move.warpage_layer_shrinkage = warpage_fields[8];
+            }
+        }
+    }
+    m_pending_helio_gcode_id.reset();
+
+
 
     ++m_line_id;
 
@@ -2947,6 +3042,8 @@ void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool
     m_start_position = m_end_position;
 
     const std::string_view cmd = line.cmd();
+    const bool is_move = boost::iequals(cmd, "G0") || boost::iequals(cmd, "G1") ||
+                         boost::iequals(cmd, "G2") || boost::iequals(cmd, "G3");
     //OrcaSlicer
     if (m_flavor == gcfKlipper)
     {
@@ -2958,8 +3055,14 @@ void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool
     }
 
     if (cmd.length() > 1) {
+        // A no-op must not reuse an event vertex whose ID points to this line.
+        const size_t moves_count_before = m_result.moves.size();
         // process command lines
         m_command_processor.process_comand(cmd, line);
+        // Helio may emit the warpage record on the line after a move even when
+        // that move has no inline thermal-index annotation.
+        if (is_move && m_result.moves.size() > moves_count_before && m_result.moves.back().gcode_id == m_line_id)
+            m_pending_helio_gcode_id = m_line_id;
     }
     else {
         const std::string &comment = line.raw();
@@ -2987,7 +3090,12 @@ void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool
 void GCodeProcessor::process_helioadditive_comment(const GCodeReader::GCodeLine &line)
 {
     const std::string &comment = line.raw();
-    m_thermal_index            = parse_helioadditive_comment(comment, m_is_helio_gcode);
+    m_thermal_index = parse_helioadditive_comment(comment, m_is_helio_gcode);
+    m_warpage_fields.fill(NAN);
+    const auto pos = comment.find(";helioadditive=");
+    if (pos != std::string::npos && parse_warpage_fields(
+            std::string_view(comment).substr(pos + sizeof(";helioadditive=") - 1), m_warpage_fields))
+        m_is_helio_gcode = true;
 }
 
 #if __has_include(<charconv>)
@@ -3244,6 +3352,13 @@ bool GCodeProcessor::get_last_position_from_gcode(const std::string &gcode_str, 
 
 void GCodeProcessor::process_tags(const std::string_view comment, bool producers_enabled)
 {
+    auto parse_percentile = [comment](std::string_view prefix, float& value) {
+        if (!boost::starts_with(comment, prefix)) return false;
+        HelioMetadata::parse_percentile(comment.substr(prefix.size()), value);
+        return true;
+    };
+    if (parse_percentile(" WARPAGE_WDM_P95=", m_result.warpage_wdm_p95) ||
+        parse_percentile(" WARPAGE_WHS_P95=", m_result.warpage_whs_p95)) return;
     static ExtrusionRole prev_role;
     // producers tags
     if (producers_enabled && process_producers_tags(comment))
@@ -5627,6 +5742,16 @@ void GCodeProcessor::process_M400(const GCodeReader::GCodeLine& line)
 {
     float value_s = 0.0;
     float value_p = 0.0;
+    float value_u = 0.0;
+    if (line.has_value('U', value_u) && std::round(value_u) == 1.0f) {
+        for (size_t i = 0; i < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++i) {
+            TimeMachine& machine = m_time_processor.machines[i];
+            if (!machine.enabled)
+                continue;
+
+            machine.pause_times.push_back({ m_g1_line_id, 0.0f, m_layer_id });
+        }
+    }
     if (line.has_value('S', value_s) || line.has_value('P', value_p)) {
         value_s += value_p * 0.001;
         simulate_st_synchronize(value_s);
@@ -5701,7 +5826,10 @@ void GCodeProcessor::process_M702(const GCodeReader::GCodeLine& line)
         // M702 C is expected to be sent by the custom end G-code when finalizing a print.
         // The MK3 unit shall unload and park the active filament into the MMU2 unit.
         m_time_processor.extruder_unloaded = true;
-        simulate_st_synchronize(get_filament_unload_time(filament_id));
+        float unload_time = get_filament_unload_time(filament_id);
+        if (filament_id >= 0)
+            m_result.print_statistics.unload_time_per_filament[static_cast<size_t>(filament_id)] += unload_time;
+        simulate_st_synchronize(unload_time);
     }
 }
 
@@ -5796,13 +5924,10 @@ void GCodeProcessor::process_T(const std::string_view command, int nozzle_id)
 }
 
 
-void GCodeProcessor::init_filament_maps_and_nozzle_type_when_import_only_gcode()
+void GCodeProcessor::init_filament_maps_when_import_only_gcode()
 {
     if (m_filament_maps.empty()) {
         m_filament_maps.assign((int) EnforcerBlockerType::ExtruderMax, 1);
-    }
-    if (m_result.nozzle_type.empty()) {
-        m_result.nozzle_type.assign((int) EnforcerBlockerType::ExtruderMax, NozzleType::ntUndefine);
     }
 }
 
@@ -5914,10 +6039,16 @@ void GCodeProcessor::process_filament_change(int id, int nozzle_id)
             extra_time += get_extruder_change_time(new_extruder_id);
         }
         if (nozzle_in_extruder_change || filament_in_nozzle_change){
-            if (old_filament_in_extruder >= 0)
-                extra_time += get_filament_unload_time(static_cast<size_t>(old_filament_in_extruder));
+            if (old_filament_in_extruder >= 0) {
+                float unload_time = get_filament_unload_time(static_cast<size_t>(old_filament_in_extruder));
+                extra_time += unload_time;
+                m_result.print_statistics.unload_time_per_filament[static_cast<size_t>(old_filament_in_extruder)] += unload_time;
+            }
             m_time_processor.extruder_unloaded = false;
-            extra_time += get_filament_load_time(static_cast<size_t>(new_filament_id));
+            float load_time = get_filament_load_time(static_cast<size_t>(new_filament_id));
+            extra_time += load_time;
+            if (new_filament_id >= 0)
+                m_result.print_statistics.load_time_per_filament[static_cast<size_t>(new_filament_id)] += load_time;
 
             if (filament_in_nozzle_change && old_filament_in_nozzle != -1)
                 m_result.print_statistics.total_flush_filament_changes++;
@@ -6003,6 +6134,15 @@ void GCodeProcessor::store_move_vertex(EMoveType type, EMovePathType path_type)
         m_thermal_index.min,
         m_thermal_index.max,
         m_thermal_index.mean,
+        m_warpage_fields[0],
+        m_warpage_fields[1],
+        m_warpage_fields[2],
+        m_warpage_fields[3],
+        m_warpage_fields[4],
+        m_warpage_fields[5],
+        m_warpage_fields[6],
+        m_warpage_fields[7],
+        m_warpage_fields[8],
         {0.f,0.f}, // prefix sum of move time to this move : set later
         //BBS: add plate's offset to the rendering vertices
         Vec3f(m_end_position[X] + m_x_offset, m_end_position[Y] + m_y_offset, m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z]) + m_extruder_offsets[filament_id],
@@ -6186,15 +6326,6 @@ float GCodeProcessor::get_hotend_change_time()
     return m_time_processor.hotend_change_times;
 }
 
-//BBS
-int GCodeProcessor::get_filament_vitrification_temperature(size_t extrude_id)
-{
-    if (extrude_id < m_result.filament_vitrification_temperature.size())
-        return m_result.filament_vitrification_temperature[extrude_id];
-    else
-        return 0;
-}
-
 void GCodeProcessor::process_custom_gcode_time(CustomGCode::Type code)
 {
     for (size_t i = 0; i < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++i) {
@@ -6271,6 +6402,52 @@ void GCodeProcessor::update_estimated_times_stats()
     m_result.print_statistics.total_volumes_per_extruder = m_used_filaments.total_volumes_per_filament;
 }
 
+void GCodeProcessor::update_preview_layers_times_stats()
+{
+    // Tag-based layers (spiral vase / scarf) use a different partition; leave them to layers_times.
+    if (m_detect_layer_based_on_tag)
+        return;
+
+    // Build a per-slider-layer time table keyed by unique extrusion Z (matching IMSlider::m_layers_values),
+    // keeping the largest cumulative time at each Z so a Z revisited by a sublayer maps to its finish.
+    for (size_t mode_idx = 0; mode_idx < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++mode_idx) {
+        PrintEstimatedStatistics::Mode& data = m_result.print_statistics.modes[mode_idx];
+        if (data.layers_times.empty())
+            continue;
+
+        std::map<float, float> end_time_by_z; // unique extrusion Z -> cumulative time when that Z is done
+        // Z only changes at layer/sublayer boundaries, so cache the slot and re-query the map only on change.
+        // std::map nodes are stable across insertions, so the cached pointer stays valid.
+        float last_z = std::numeric_limits<float>::quiet_NaN();
+        float* slot = nullptr;
+        for (const GCodeProcessorResult::MoveVertex& move : m_result.moves) {
+            if (move.type != EMoveType::Extrude)
+                continue;
+            if (move.position.z() != last_z) {
+                last_z = move.position.z();
+                slot = &end_time_by_z[last_z];
+            }
+            *slot = std::max(*slot, move.time[mode_idx]);
+        }
+
+        // Only mixed-color sublayers make the unique-Z partition finer than the logical layers.
+        // When the counts match, layers_times already fits the slider, so leave preview empty.
+        if (end_time_by_z.size() <= data.layers_times.size())
+            continue;
+
+        std::vector<float> layer_times;
+        layer_times.reserve(end_time_by_z.size());
+        for (const auto& z_time : end_time_by_z)
+            layer_times.emplace_back(z_time.second); // cumulative end-times, already sorted by Z ascending
+
+        // Convert cumulative end-times into per-layer durations (iterate backwards for in-place diff).
+        layer_times.back() = std::max(layer_times.back(), data.time);
+        for (size_t i = layer_times.size(); i-- > 1; )
+            layer_times[i] = std::max(0.0f, layer_times[i] - layer_times[i - 1]);
+        data.preview_layers_times = std::move(layer_times);
+    }
+}
+
 //BBS: ugly code...
 void GCodeProcessor::update_slice_warnings()
 {
@@ -6288,43 +6465,6 @@ void GCodeProcessor::update_slice_warnings()
     auto used_filaments = get_used_filaments();
     assert(!used_filaments.empty());
     GCodeProcessorResult::SliceWarning warning;
-
-    //bbs:HRC checker // remove the checker
-    //warning.params.clear();
-    //warning.level=1;
-
-    //std::vector<int> nozzle_hrc_lists(m_result.nozzle_type.size(), 0);
-    //// store the nozzle hrc of each extruder
-    //for (size_t idx = 0; idx < m_result.nozzle_type.size(); ++idx)
-    //    nozzle_hrc_lists[idx] = Print::get_hrc_by_nozzle_type(m_result.nozzle_type[idx]);
-
-    //for (size_t idx = 0; idx < used_filaments.size(); ++idx) {
-    //    int filament_hrc = 0;
-
-    //    if (used_filaments[idx] < m_result.required_nozzle_HRC.size())
-    //        filament_hrc = m_result.required_nozzle_HRC[used_filaments[idx]];
-
-    //    int extruder_hrc = 0;
-    //    int filament_extruder_id = 0;
-    //    if (used_filaments[idx] >= 0 && used_filaments[idx] < m_filament_maps.size()) {
-    //        filament_extruder_id = m_filament_maps[used_filaments[idx]];
-    //        if (filament_extruder_id >= 0 && filament_extruder_id < nozzle_hrc_lists.size()) {
-    //            extruder_hrc = nozzle_hrc_lists[filament_extruder_id];
-    //        }
-    //    }
-
-    //    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": Check HRC: filament:%1%, hrc=%2%, extruder:%3%, hrc:%4%") % used_filaments[idx] % filament_hrc % filament_extruder_id % extruder_hrc;
-
-    //    if (extruder_hrc!=0 && extruder_hrc < filament_hrc)
-    //        warning.params.push_back(std::to_string(used_filaments[idx]));
-    //}
-
-    //if (!warning.params.empty()) {
-    //    warning.level      = 3;
-    //    warning.msg = NOZZLE_HRC_CHECKER;
-    //    warning.error_code = "1000C002";
-    //    m_result.warnings.push_back(warning);
-    //}
 
     // bbs:timelapse checker
     warning.params.clear();
@@ -6399,7 +6539,7 @@ int GCodeProcessor::get_extruder_id(bool force_initialize)const
 int GCodeProcessor::get_machine_config_idx(int filament_idx) const
 {
     int extruder_id = get_extruder_id();
-    if (!m_nozzle_group_result || extruder_id < 0)
+    if (!m_nozzle_group_result || extruder_id < 0 || static_cast<size_t>(extruder_id) >= m_result.extruder_types.size())
         return 0;
     int nozzle_id = m_nozzle_status_recorder.get_nozzle_in_extruder(extruder_id);
     auto nozzle_info = m_nozzle_group_result->get_nozzle_from_id(nozzle_id);
@@ -6591,9 +6731,9 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
     float ext_cooling_rate = cooling_rate[extruder_id];
 
     std::vector<std::string> line_buf;
-    auto add_M104_lines = [&](int gcode_id, int target_extruder, int target_temp, int target_filament, bool skippable, int next_filament_idx, int next_nozzle_id, TimeProcessor::InsertLineType type,const std::string& comment = std::string()){
+    auto add_M104_lines = [&](int gcode_id, int target_extruder, int target_temp, int target_filament, bool skippable, int next_filament_idx, int next_nozzle_id, bool is_heating, TimeProcessor::InsertLineType type,const std::string& comment = std::string()){
 
-        auto format_line_M104 = [&](int target_extruder,int target_temp, int target_filament, bool skippable, int next_filament_idx,  int next_nozzle_id,const std::string& comment = std::string())->std::vector<std::string> {
+        auto format_line_M104 = [&](int target_extruder,int target_temp, int target_filament, bool skippable, int next_filament_idx, int next_nozzle_id, bool is_heating, const std::string& comment = std::string())->std::vector<std::string> {
             std::vector<std::string> buffer;
             if (skippable) {
                 const bool support_dynamic_nozzle_map = this->nozzle_group_result.is_support_dynamic_nozzle_map();
@@ -6605,7 +6745,10 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
                 m632_line += " W\n";
                 buffer.emplace_back(std::move(m632_line));
             }
-            buffer.emplace_back("M400\n");
+            // Only wait before cooling: G1 is non-blocking, so M104 cool-down must not start mid-travel.
+            // Heating can start early and does not need M400.
+            if (!is_heating)
+                buffer.emplace_back("M400\n");
             std::string M104_line = "M104";
             if (handle_hotend_as_extruder) {
                 M104_line += (" I" + std::to_string(target_filament == -1 ? next_filament_idx : target_filament));
@@ -6629,7 +6772,7 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
             return buffer;
         };
 
-        std::vector<std::string> line_buf = format_line_M104(target_extruder,target_temp, target_filament, skippable, next_filament_idx, next_nozzle_id, comment);
+        std::vector<std::string> line_buf = format_line_M104(target_extruder,target_temp, target_filament, skippable, next_filament_idx, next_nozzle_id, is_heating, comment);
         for(auto& line : line_buf)
             inserted_operation_lines[gcode_id].emplace_back(line, type);
     };
@@ -6640,7 +6783,7 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
         float max_cooling_temp = std::min(curr_temp, std::min(get_partial_free_cooling_thres(block.last_filament_id), partial_free_time_gap * ext_cooling_rate));
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": partial cooling for %1% %2%") % max_cooling_temp % curr_temp;
         curr_temp = std::max(room_temperature, curr_temp - max_cooling_temp); // set the temperature after doing cooling when post-extruding
-        add_M104_lines(block.partial_free_lower_id, extruder_id, curr_temp, block.last_filament_id, false, block.next_filament_id, block.next_nozzle_id, TimeProcessor::InsertLineType::PreCooling, "Multi extruder pre cooling in post extrusion");
+        add_M104_lines(block.partial_free_lower_id, extruder_id, curr_temp, block.last_filament_id, false, block.next_filament_id, block.next_nozzle_id, false, TimeProcessor::InsertLineType::PreCooling, "Multi extruder pre cooling in post extrusion");
     }
 
     if (pre_cooling && !pre_heating) {
@@ -6648,7 +6791,7 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
         if (target_temp >= curr_temp)
             return;
         int clamped_target = std::max((int)room_temperature, (int)target_temp);
-        add_M104_lines(block.free_lower_gcode_id,extruder_id,clamped_target, block.last_filament_id, false, block.next_filament_id, block.next_nozzle_id, TimeProcessor::InsertLineType::PreCooling,"Multi extruder pre cooling");
+        add_M104_lines(block.free_lower_gcode_id,extruder_id,clamped_target, block.last_filament_id, false, block.next_filament_id, block.next_nozzle_id, false, TimeProcessor::InsertLineType::PreCooling,"Multi extruder pre cooling");
         return;
     }
     if (!pre_cooling && pre_heating) {
@@ -6658,12 +6801,12 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
         float heating_start_time = move_iter_upper->time[valid_machine_id] - (target_temp - curr_temp) / ext_heating_rate;
         auto heating_move_iter = std::upper_bound(move_iter_lower, move_iter_upper + 1, heating_start_time, [valid_machine_id = this->valid_machine_id](float time, const GCodeProcessorResult::MoveVertex& a) {return time < a.time[valid_machine_id]; });
         if (heating_move_iter == move_iter_lower) {
-            add_M104_lines(block.free_lower_gcode_id,extruder_id,target_temp, block.next_filament_id, true, block.next_filament_id,block.next_nozzle_id,TimeProcessor::InsertLineType::PreHeating,"Multi extruder pre heating");
+            add_M104_lines(block.free_lower_gcode_id,extruder_id,target_temp, block.next_filament_id, true, block.next_filament_id,block.next_nozzle_id, true, TimeProcessor::InsertLineType::PreHeating,"Multi extruder pre heating");
         }
         else {
             --heating_move_iter;
             heating_move_iter = adjust_iter(heating_move_iter, move_iter_lower, move_iter_upper, false);
-            add_M104_lines(heating_move_iter->gcode_id, extruder_id, target_temp, block.next_filament_id, true, block.next_filament_id,block.next_nozzle_id,TimeProcessor::InsertLineType::PreHeating, "Multi extruder pre heating");
+            add_M104_lines(heating_move_iter->gcode_id, extruder_id, target_temp, block.next_filament_id, true, block.next_filament_id,block.next_nozzle_id, true, TimeProcessor::InsertLineType::PreHeating, "Multi extruder pre heating");
         }
         return;
         }
@@ -6683,8 +6826,8 @@ void GCodeProcessor::PreCoolingInjector::inject_cooling_heating_command(TimeProc
     if (real_delta_temp == 0)
         return;
     int cooling_temp = std::max((int)room_temperature, (int)curr_temp - real_delta_temp);
-    add_M104_lines(block.free_lower_gcode_id, extruder_id, cooling_temp, block.last_filament_id, false, block.next_filament_id,block.next_nozzle_id, TimeProcessor::InsertLineType::PreCooling,"Multi extruder pre cooling");
-    add_M104_lines(heating_move_iter->gcode_id, extruder_id, target_temp, block.next_filament_id, true, block.next_filament_id, block.next_nozzle_id, TimeProcessor::InsertLineType::PreHeating,"Multi extruder pre heating");
+    add_M104_lines(block.free_lower_gcode_id, extruder_id, cooling_temp, block.last_filament_id, false, block.next_filament_id,block.next_nozzle_id, false, TimeProcessor::InsertLineType::PreCooling,"Multi extruder pre cooling");
+    add_M104_lines(heating_move_iter->gcode_id, extruder_id, target_temp, block.next_filament_id, true, block.next_filament_id, block.next_nozzle_id, true, TimeProcessor::InsertLineType::PreHeating,"Multi extruder pre heating");
 }
 
 void GCodeProcessor::PreCoolingInjector::build_by_filament_blocks(const std::vector<ExtruderPreHeating::FilamentUsageBlock>& filament_usage_blocks_)

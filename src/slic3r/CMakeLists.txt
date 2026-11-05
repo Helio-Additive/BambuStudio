@@ -60,6 +60,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Widgets/StateHandler.hpp
     GUI/Widgets/TabCtrl.cpp
     GUI/Widgets/TabCtrl.hpp
+    GUI/Widgets/TextTabbar.cpp
+    GUI/Widgets/TextTabbar.hpp
     GUI/Widgets/TextInput.cpp
     GUI/Widgets/TextInput.hpp
     GUI/Widgets/TempInput.cpp
@@ -80,6 +82,12 @@ set(SLIC3R_GUI_SOURCES
     GUI/Widgets/SideTools.hpp
     GUI/Widgets/WebView.cpp
     GUI/Widgets/WebView.hpp
+    GUI/Widgets/WebViewTraceLogger.cpp
+    GUI/Widgets/WebViewTraceLogger.hpp
+    GUI/Widgets/WebViewWatcher.cpp
+    GUI/Widgets/WebViewWatcher.hpp
+    GUI/DeviceWeb/DeviceWebHealth.cpp
+    GUI/DeviceWeb/DeviceWebHealth.hpp
     GUI/Widgets/ErrorMsgStaticText.cpp
     GUI/Widgets/ErrorMsgStaticText.hpp
     GUI/Widgets/MultiNozzleSync.hpp
@@ -138,6 +146,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Gizmos/GLGizmosManager.hpp
     GUI/Gizmos/GLGizmosCommon.cpp
     GUI/Gizmos/GLGizmosCommon.hpp
+    GUI/Gizmos/FacetPicker.cpp
+    GUI/Gizmos/FacetPicker.hpp
     GUI/Gizmos/GLGizmoBase.cpp
     GUI/Gizmos/GLGizmoBase.hpp
     GUI/Gizmos/GLGizmoMove.cpp
@@ -184,6 +194,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/UIHelpers/MeshBooleanUI.hpp
     GUI/UIHelpers/TextEllipsis.cpp
     GUI/UIHelpers/TextEllipsis.hpp
+    GUI/UIHelpers/ImGuiFilamentWidgets.cpp
+    GUI/UIHelpers/ImGuiFilamentWidgets.hpp
     GUI/GLSelectionRectangle.cpp
     GUI/GLSelectionRectangle.hpp
     GUI/Gizmos/GizmoObjectManipulation.cpp
@@ -212,6 +224,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/AMSDryControl.hpp
     GUI/AMSMaterialsSetting.cpp
     GUI/AMSMaterialsSetting.hpp
+    GUI/AMSRFIDMaterialView.cpp
+    GUI/AMSRFIDMaterialView.hpp
+    GUI/FilamentSelectDialog.cpp
+    GUI/FilamentSelectDialog.hpp
     GUI/ExtrusionCalibration.cpp
     GUI/ExtrusionCalibration.hpp
     GUI/PresetHints.cpp
@@ -232,6 +248,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/IconManager.hpp
     GUI/MainFrame.cpp
     GUI/MainFrame.hpp
+    GUI/PerfTrace.cpp
+    GUI/PerfTrace.hpp
     GUI/BBLTopbar.cpp
     GUI/BBLTopbar.hpp
     GUI/BedShapeDialog.cpp
@@ -240,6 +258,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Plater.hpp
     GUI/PartPlate.cpp
     GUI/PartPlate.hpp
+    GUI/WipeTowerPlacement.cpp
+    GUI/WipeTowerPlacement.hpp
     GUI/UserNotification.cpp
     GUI/UserNotification.hpp
     GUI/PresetComboBoxes.hpp
@@ -334,6 +354,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/OG_CustomCtrl.hpp
     GUI/MarkdownTip.cpp
     GUI/MarkdownTip.hpp
+    GUI/ParamTooltip.cpp
+    GUI/ParamTooltip.hpp
+    GUI/WindowShadow.cpp
+    GUI/WindowShadow.hpp
     GUI/2DBed.cpp
     GUI/2DBed.hpp
     GUI/3DBed.cpp
@@ -350,6 +374,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Overview/AssemblyStepsUtilsImgui.cpp
     GUI/Overview/AssemblyStepsUtils.hpp
     GUI/Overview/AssemblyStepsUtilsInternal.hpp
+    GUI/Overview/OverviewUtils.cpp
+    GUI/Overview/OverviewUtils.hpp
     GUI/CameraUtils.cpp
     GUI/CameraUtils.hpp
     GUI/wxExtensions.cpp
@@ -358,6 +384,14 @@ set(SLIC3R_GUI_SOURCES
     GUI/ObjColorDialog.hpp
     GUI/TextureImportDialog.hpp
     GUI/TextureImportDialog.cpp
+    GUI/MixingKitsHelpDialog.hpp
+    GUI/MixingKitsHelpDialog.cpp
+    GUI/TextureImportUi.hpp
+    GUI/TextureImportUi.cpp
+    GUI/TextureImportOverLimitDialog.hpp
+    GUI/TextureImportOverLimitDialog.cpp
+    GUI/TextureImportPopupDismiss.hpp
+    GUI/TextureImportPopupDismiss.cpp
     GUI/FilamentPickerDialog.cpp
     GUI/FilamentPickerDialog.hpp
     GUI/FilamentBitmapUtils.cpp
@@ -528,6 +562,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/AmsMappingPopupUpdate.cpp
     GUI/ReleaseNote.hpp
     GUI/ReleaseNote.cpp
+    GUI/VersionPolicyDialog.hpp
+    GUI/VersionPolicyDialog.cpp
     GUI/HelioReleaseNote.hpp
     GUI/HelioReleaseNote.cpp
     GUI/HelioHistoryDialog.hpp
@@ -564,6 +600,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/SafetyOptionsDialog.cpp
     GUI/CreatePresetsDialog.hpp
     GUI/CreatePresetsDialog.cpp
+    GUI/CreateFilamentWebDialog.hpp
+    GUI/CreateFilamentWebDialog.cpp
+    GUI/EditFilamentWebDialog.hpp
+    GUI/EditFilamentWebDialog.cpp
     Utils/json_diff.hpp
     Utils/json_diff.cpp
     GUI/KBShortcutsDialog.hpp
@@ -609,6 +649,12 @@ set(SLIC3R_GUI_SOURCES
     Utils/FileHelp.hpp
     Utils/PresetUpdater.cpp
     Utils/PresetUpdater.hpp
+    Utils/VersionPolicyParser.cpp
+    Utils/VersionPolicyParser.hpp
+    Utils/VersionPolicyFetcher.cpp
+    Utils/VersionPolicyFetcher.hpp
+    Utils/VersionPolicyManager.cpp
+    Utils/VersionPolicyManager.hpp
     Utils/Process.cpp
     Utils/Process.hpp
     Utils/RaycastManager.cpp
@@ -653,6 +699,10 @@ set(SLIC3R_GUI_SOURCES
     Utils/WxFontUtils.cpp
     Utils/HelioDragon.cpp
     Utils/HelioDragon.hpp
+    Utils/HelioRetryPolicy.cpp
+    Utils/HelioRetryPolicy.hpp
+    Utils/HelioSupportData.cpp
+    Utils/HelioSupportData.hpp
     Utils/FileTransferUtils.cpp
     Utils/FileTransferUtils.hpp
     Utils/FileTransferObject.cpp
@@ -688,11 +738,13 @@ if (APPLE)
             GUI/InstanceCheckMac.h
             GUI/CameraFullscreenMac.mm
             GUI/CameraFullscreenMac.hpp
+            GUI/TextureImportPopupDismiss.mm
             GUI/MacIME.mm
             GUI/MacIME.hpp
             GUI/wxMediaCtrl2.mm
             GUI/wxMediaCtrl2.h
             GUI/wxMediaCtrl3.h
+            GUI/WindowShadowMac.mm
         )
     FIND_LIBRARY(DISKARBITRATION_LIBRARY DiskArbitration)
 else ()
@@ -746,7 +798,7 @@ if (WIN32)
         $<$<CONFIG:Debug>:${HPDF_LIBRARY_DEBUG}>
         $<$<NOT:$<CONFIG:Debug>>:${HPDF_LIBRARY_RELEASE}>)
 else ()
-    find_library(HPDF_LIBRARY NAMES hpdf)
+    find_library(HPDF_LIBRARY NAMES hpdf hpdfd HINTS lib REQUIRED)
 endif ()
 
 target_link_libraries(libslic3r_gui libslic3r cereal imgui imguizmo minilzo GLEW::GLEW OpenGL::GL hidapi

@@ -103,6 +103,7 @@ namespace Slic3r {
                 void unbind_color_range_texture();
 
                 void bind_thermal_index_range_colors_texture(uint8_t stage);
+                void bind_warpage_range_colors_texture(uint8_t stage);
                 void unbind_thermal_index_range_colors_texture();
 
                 void bind_role_colors_texture(uint8_t stage);
@@ -124,6 +125,7 @@ namespace Slic3r {
 
                 std::shared_ptr<GLTexture> m_p_color_range_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_thermal_index_range_colors_texture{ nullptr };
+                std::array<std::shared_ptr<GLTexture>, 9> m_warpage_color_textures;
                 std::shared_ptr<GLTexture> m_p_role_colors_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_option_colors_texture{ nullptr };
                 std::shared_ptr<GLTexture> m_p_tool_colors_texture{ nullptr };
