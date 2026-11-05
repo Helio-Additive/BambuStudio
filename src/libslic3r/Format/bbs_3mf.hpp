@@ -99,7 +99,8 @@ struct PlateData
     std::string     printer_model_id;
     std::string     nozzle_diameters;
     std::string     nozzle_volume_types;
-    std::string     gcode_file;
+    std::string     gcode_file; // Standard printer payload; never the annotated preview.
+    std::string     preview_gcode_file;
     std::string     gcode_file_md5;
     std::string     thumbnail_file;
     std::string     no_light_thumbnail_file;

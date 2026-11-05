@@ -337,6 +337,7 @@ static constexpr const char* FILAMENT_MAP_ATTR = "filament_maps";
 static constexpr const char* LIMIT_FILAMENT_MAP_ATTR = "limit_filament_maps";
 static constexpr const char* FILAMENT_VOL_MAP_ATTR = "filament_volume_maps";
 static constexpr const char* GCODE_FILE_ATTR = "gcode_file";
+static constexpr const char* PREVIEW_GCODE_FILE_ATTR = "helio_preview_gcode_file";
 static constexpr const char* THUMBNAIL_FILE_ATTR = "thumbnail_file";
 static constexpr const char* NO_LIGHT_THUMBNAIL_FILE_ATTR = "thumbnail_no_light_file";
 static constexpr const char* TOP_FILE_ATTR = "top_file";
@@ -1783,6 +1784,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             plate->plate_index = it->second->plate_index-1;
             plate->obj_inst_map = it->second->obj_inst_map;
             plate->gcode_file = it->second->gcode_file;
+            plate->preview_gcode_file = it->second->preview_gcode_file;
             plate->gcode_prediction = it->second->gcode_prediction;
             plate->gcode_weight = it->second->gcode_weight;
             plate->toolpath_outside = it->second->toolpath_outside;
@@ -2506,6 +2508,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             plate_data_list[it->first-1]->plate_name  = it->second->plate_name;
             plate_data_list[it->first-1]->obj_inst_map = it->second->obj_inst_map;
             plate_data_list[it->first-1]->gcode_file = (m_load_restore || it->second->gcode_file.empty()) ? it->second->gcode_file : bbs_join_path_within_dir(m_backup_path, it->second->gcode_file);
+            plate_data_list[it->first-1]->preview_gcode_file = (m_load_restore || it->second->preview_gcode_file.empty()) ? it->second->preview_gcode_file : bbs_join_path_within_dir(m_backup_path, it->second->preview_gcode_file);
             plate_data_list[it->first-1]->gcode_prediction = it->second->gcode_prediction;
             plate_data_list[it->first-1]->gcode_weight = it->second->gcode_weight;
             plate_data_list[it->first-1]->toolpath_outside = it->second->toolpath_outside;
@@ -4791,6 +4794,10 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             else if (key == GCODE_FILE_ATTR)
             {
                 m_curr_plater->gcode_file = value;
+            }
+            else if (key == PREVIEW_GCODE_FILE_ATTR)
+            {
+                m_curr_plater->preview_gcode_file = value;
             }
             else if (key == THUMBNAIL_FILE_ATTR)
             {
@@ -8555,6 +8562,8 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
 
                 if (save_gcode)
                     stream << "    <" << METADATA_TAG << " " << KEY_ATTR << "=\"" << GCODE_FILE_ATTR << "\" " << VALUE_ATTR << "=\"" << std::boolalpha << xml_escape(plate_data->gcode_file) << "\"/>\n";
+                if (save_gcode && !plate_data->preview_gcode_file.empty())
+                    stream << "    <" << METADATA_TAG << " " << KEY_ATTR << "=\"" << PREVIEW_GCODE_FILE_ATTR << "\" " << VALUE_ATTR << "=\"" << xml_escape(plate_data->preview_gcode_file) << "\"/>\n";
                 if (!plate_data->gcode_file.empty()) {
                     gcode_paths.push_back(plate_data->gcode_file);
                 }
@@ -9061,6 +9070,7 @@ bool _BBS_3MF_Exporter::_add_gcode_file_to_archive(mz_zip_archive& archive, cons
                 boost::filesystem::path src_gcode_path(src_gcode_file);
                 if (!boost::filesystem::exists(src_gcode_path)) {
                     BOOST_LOG_TRIVIAL(error) << "Gcode is missing, filename = " << PathSanitizer::sanitize(src_gcode_file);
+                    boost::unique_lock l(mutex);
                     result = false;
                 }
                 boost::filesystem::ifstream ifs(src_gcode_file, std::ios::binary);
@@ -9071,6 +9081,14 @@ bool _BBS_3MF_Exporter::_add_gcode_file_to_archive(mz_zip_archive& archive, cons
                 }
                 mz_zip_writer_add_staged_finish(&context);
             }
+            if (!plate_data->preview_gcode_file.empty()) {
+                const std::string preview_in_3mf = "Metadata/plate_" + std::to_string(plate_data->plate_index + 1) + "_helio_preview.gcode";
+                if (!mz_zip_writer_add_file(&archive, preview_in_3mf.c_str(), plate_data->preview_gcode_file.c_str(), nullptr, 0, MZ_DEFAULT_COMPRESSION)) {
+                    boost::unique_lock l(mutex);
+                    result = false;
+                }
+                plate_data->preview_gcode_file = preview_in_3mf;
+            }
             void *ppBuf; size_t pSize;
             mz_zip_writer_finalize_heap_archive(&archive, &ppBuf, &pSize);
             mz_zip_writer_end(&archive);
@@ -9078,7 +9096,10 @@ bool _BBS_3MF_Exporter::_add_gcode_file_to_archive(mz_zip_archive& archive, cons
             mz_zip_reader_init_mem(&archive, ppBuf, pSize, 0);
             {
                 boost::unique_lock l(mutex);
-                mz_zip_writer_add_from_zip_reader(&root_archive, &archive, 0);
+                for (mz_uint entry = 0; entry < mz_zip_reader_get_num_files(&archive); ++entry) {
+                    if (!mz_zip_writer_add_from_zip_reader(&root_archive, &archive, entry))
+                        result = false;
+                }
             }
             mz_zip_reader_end(&archive);
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__ << boost::format(", store  %1% to 3mf %2%\n") % PathSanitizer::sanitize(src_gcode_file) % PathSanitizer::sanitize(gcode_in_3mf);

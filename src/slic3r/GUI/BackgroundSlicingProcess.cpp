@@ -221,7 +221,9 @@ void BackgroundSlicingProcess::process_fff()
 			BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(" %1%: export gcode from %2% directly to %3%")%__LINE__%m_temp_output_path %m_export_path;
 		}
 		else {
-			m_fff_print->export_gcode_from_previous_file(m_temp_output_path, m_gcode_result, [this](const ThumbnailsParams& params) { return this->render_thumbnails(params); });
+			// Parse the annotated artifact for display; exports still use m_temp_output_path.
+            const std::string preview_path = this->get_current_plate()->get_gcode_result()->filename;
+            m_fff_print->export_gcode_from_previous_file(preview_path, m_gcode_result, [this](const ThumbnailsParams& params) { return this->render_thumbnails(params); });
 			BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(" %1%: export_gcode_from_previous_file from %2% finished")%__LINE__ % m_temp_output_path;
 		}
 	}

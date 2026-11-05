@@ -2715,6 +2715,8 @@ std::string PartPlate::get_gcode_filename()
         const auto* result = m_helio_result_staged ? m_previous_helio_result.get() : m_helio_result.get();
         if (result && result->is_valid && !result->printable_gcode_path.empty())
             return result->printable_gcode_path;
+		if (!m_preview_gcode_path_from_3mf.empty() && m_gcode_result->filename == m_preview_gcode_path_from_3mf)
+            return m_gcode_path_from_3mf;
 		return m_gcode_result->filename;
 	}
 	return "";
@@ -7357,6 +7359,8 @@ int PartPlateList::store_to_3mf_structure(PlateDataPtrs& plate_data_list, bool w
 					if (m_plate_list[i]->cali_bboxes_data.is_valid())
 						plate_data_item->pattern_bbox_file = "valid_pattern_bbox";
 					plate_data_item->gcode_file       = m_plate_list[i]->get_gcode_filename();
+                    if (plate_data_item->gcode_file != m_plate_list[i]->m_gcode_result->filename)
+                        plate_data_item->preview_gcode_file = m_plate_list[i]->m_gcode_result->filename;
 					plate_data_item->is_sliced_valid  = true;
 					plate_data_item->gcode_prediction = std::to_string(
 						(int) m_plate_list[i]->get_slice_result()->print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)].time);
@@ -7489,6 +7493,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 			m_plate_list[index]->obj_to_instance_set.insert(std::pair(it->first, it->second));*/
 		if (!plate_data_list[i]->gcode_file.empty()) {
 			m_plate_list[index]->m_gcode_path_from_3mf = plate_data_list[i]->gcode_file;
+            m_plate_list[index]->m_preview_gcode_path_from_3mf = plate_data_list[i]->preview_gcode_file;
 		}
 		GCodeResult* gcode_result = nullptr;
 		PrintBase* fff_print = nullptr;
@@ -7641,7 +7646,14 @@ int PartPlateList::load_gcode_files()
 			//print_volume.min(2) = -1e10;
 			m_model->update_print_volume_state({m_plate_list[i]->get_shape(), (double)this->m_plate_height, m_plate_list[i]->get_extruder_areas(), m_plate_list[i]->get_extruder_heights() });
 
-			if (!m_plate_list[i]->load_gcode_from_file(m_plate_list[i]->m_gcode_path_from_3mf))
+            // Only enable preview when the printable payload exists as well.
+            const auto& preview_path = m_plate_list[i]->m_preview_gcode_path_from_3mf;
+            const bool use_preview = !preview_path.empty() && boost::filesystem::exists(preview_path) &&
+                boost::filesystem::exists(m_plate_list[i]->m_gcode_path_from_3mf);
+            if (!use_preview)
+                m_plate_list[i]->m_preview_gcode_path_from_3mf.clear();
+            const std::string filename = use_preview ? preview_path : m_plate_list[i]->m_gcode_path_from_3mf;
+            if (!m_plate_list[i]->load_gcode_from_file(filename))
 				ret ++;
 		}
 	}
