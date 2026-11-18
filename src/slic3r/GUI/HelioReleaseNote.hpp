@@ -2,6 +2,7 @@
 #define slic3r_GUI_HelioReleaseNote_hpp_
 
 #include <limits>
+#include <boost/optional.hpp>
 #include <wx/wx.h>
 #include <wx/intl.h>
 #include <wx/collpane.h>
@@ -50,7 +51,6 @@ wxDECLARE_EVENT(EVT_SECONDARY_CHECK_RETRY, wxCommandEvent);
 wxDECLARE_EVENT(EVT_SECONDARY_CHECK_DONE, wxCommandEvent);
 wxDECLARE_EVENT(EVT_SECONDARY_CHECK_RESUME, wxCommandEvent);
 wxDECLARE_EVENT(EVT_UPDATE_NOZZLE, wxCommandEvent);
-wxDECLARE_EVENT(EVT_UPDATE_TEXT_MSG, wxCommandEvent);
 wxDECLARE_EVENT(EVT_ERROR_DIALOG_BTN_CLICKED, wxCommandEvent);
 
 
@@ -182,6 +182,7 @@ private:
     wxString m_lastValidValue = wxEmptyString;
 
     std::string m_material_id;
+    boost::optional<bool> m_is_multi_material;
     std::vector<HelioQuery::PrintPriorityOption> m_print_priority_options;
     std::vector<HelioQuery::PrintPriorityOption> m_available_print_priority_options;
     bool m_print_priority_loading{false};
@@ -203,6 +204,7 @@ private:
     Button* buy_now_button{nullptr};
     LinkLabel* helio_wiki_link{nullptr};
 
+    unsigned int m_sliced_layer_count{0};
     int current_action{-1}; //0-simulation 1-optimization
     int support_optimization{0}; //-1-no 0-yes
     int remaining_optimization_times{0};
@@ -224,7 +226,8 @@ private:
     
     int m_original_tooltip_delay{500};
 public:
-    HelioInputDialog(wxWindow *parent = nullptr, const std::string& material_id = "");
+    HelioInputDialog(wxWindow *parent = nullptr, const std::string& material_id = "",
+                     boost::optional<bool> is_multi_material = boost::none);
     ~HelioInputDialog();
 
 public:

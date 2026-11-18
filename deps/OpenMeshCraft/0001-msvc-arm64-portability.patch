@@ -1,0 +1,45 @@
+--- a/src/OpenMeshCraft/Utils/Logger.cpp
++++ b/src/OpenMeshCraft/Utils/Logger.cpp
+@@ -1,6 +1,11 @@
+ #include "Logger.h"
+ 
+ #include <iostream>
++
++#ifdef _MSC_VER
++  #include <windows.h>
++  #include <psapi.h>
++#endif
+ 
+ namespace OMC {
+ 
+@@ -55,10 +60,6 @@
+ 
+ #ifdef _MSC_VER
+ 
+-  #include <windows.h>
+-
+-  #include <psapi.h>
+-
+ // To ensure correct resolution of symbols, add Psapi.lib to TARGETLIBS
+ // and compile with -DPSAPI_VERSION=1
+ 
+--- a/src/OpenMeshCraft/Utils/Label.h
++++ b/src/OpenMeshCraft/Utils/Label.h
+@@ -2,6 +2,7 @@
+ 
+ #include "Exception.h"
+ 
++#include <bit>
+ #include <bitset>
+ 
+ namespace OMC {
+@@ -20,7 +21,7 @@
+   return __builtin_ffs(x) - 1; // GCC
+ #endif
+ #ifdef _MSC_VER
+-  return 32 - __lzcnt(x) - 1; // Visual studio
++  return std::countr_zero(x); // MSVC: portable across x64 and ARM64
+ #endif
+ }
+ } // namespace OMC
+\ No newline at end of file
