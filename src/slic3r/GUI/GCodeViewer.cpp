@@ -3,6 +3,7 @@
 #include "slic3r/GUI/GCodeRenderer/LegacyRenderer.hpp"
 #include "slic3r/GUI/OpenGLManager.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
+#include "slic3r/GUI/PartPlate.hpp"
 #include "libslic3r/BoundingBox.hpp"
 namespace Slic3r {
     namespace GUI {
@@ -51,6 +52,13 @@ namespace Slic3r {
                 const auto& p_renderer = get_renderer();
                 if (p_renderer) {
                     p_renderer->on_change_color_mode(is_dark);
+                }
+            }
+            void GCodeViewer::on_object_shading_preference_changed()
+            {
+                const auto& p_renderer = get_renderer();
+                if (p_renderer) {
+                    p_renderer->set_view_type(p_renderer->get_view_type());
                 }
             }
             void GCodeViewer::init(ConfigOptionMode mode, Slic3r::PresetBundle* preset_bundle)

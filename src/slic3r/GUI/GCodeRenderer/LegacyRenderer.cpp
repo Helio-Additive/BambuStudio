@@ -15,7 +15,6 @@
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/GUI_Utils.hpp"
 #include "slic3r/GUI/GUI.hpp"
-#include "slic3r/GUI/GLCanvas3D.hpp"
 #include "slic3r/GUI/GLToolbar.hpp"
 #include "slic3r/GUI/GUI_Preview.hpp"
 #include "slic3r/GUI/IMSlider.hpp"
@@ -24,7 +23,7 @@
 #include "slic3r/GUI/Widgets/ProgressDialog.hpp"
 #include <imgui/imgui_internal.h>
 #include <GL/glew.h>
-#include <boost/log/trivial.hpp>
+#include "libslic3r/Log.hpp"
 #include <boost/algorithm/string/split.hpp>
 #include <boost/nowide/cstdio.hpp>
 #include <boost/nowide/fstream.hpp>
@@ -160,7 +159,7 @@ namespace Slic3r {
                 vbo = 0;
                 count = 0;
             }
-            bool LegacyRenderer::Path::matches(const GCodeProcessorResult::MoveVertex& move) const
+            bool LegacyRenderer::Path::matches(const GCodeProcessorResult::MoveVertex& move, bool split_by_object) const
             {
                 auto matches_percent = [](float value1, float value2, float max_percent) {
                     return std::abs(value2 - value1) / value1 <= max_percent;
@@ -176,15 +175,19 @@ namespace Slic3r {
                 case EMoveType::Seam:
                 case EMoveType::Extrude: {
                     // use rounding to reduce the number of generated paths
-                    return type == move.type && extruder_id == move.extruder_id && cp_color_id == move.cp_color_id && role == move.extrusion_role &&
+                    return type == move.type && extruder_id == move.extruder_id && cp_color_id == move.cp_color_id &&
+                        (!split_by_object || object_label_id == move.object_label_id) && role == move.extrusion_role &&
                         move.position.z() <= sub_paths.front().first.position.z() && feedrate == move.feedrate && fan_speed == move.fan_speed &&
                         additional_fan_speed == move.additional_fan_speed &&
                         height == round_to_bin(move.height) && width == round_to_bin(move.width) &&
                         matches_percent(volumetric_rate, move.volumetric_rate(), 0.05f) && layer_time == move.layer_duration &&
-                        thermal_index_mean == move.thermal_index_mean && thermal_index_min == move.thermal_index_min && thermal_index_max == move.thermal_index_max;
+                        thermal_index_mean == move.thermal_index_mean && thermal_index_min == move.thermal_index_min && thermal_index_max == move.thermal_index_max &&
+                        std::equal(warpage.begin(), warpage.end(), move.warpage_values().begin(),
+                            [](float a, float b) { return a == b || (std::isnan(a) && std::isnan(b)); });
                 }
                 case EMoveType::Travel: {
-                    return type == move.type && feedrate == move.feedrate && extruder_id == move.extruder_id && cp_color_id == move.cp_color_id;
+                    return type == move.type && feedrate == move.feedrate && extruder_id == move.extruder_id &&
+                        cp_color_id == move.cp_color_id && (!split_by_object || object_label_id == move.object_label_id);
                 }
                 default: { return false; }
                 }
@@ -220,10 +223,12 @@ namespace Slic3r {
                      move.thermal_index_min,
                      move.thermal_index_max,
                      move.thermal_index_mean,
+                     move.warpage_values(),
                      move.volumetric_rate(),
                      move.layer_duration,
                      move.extruder_id,
                      move.cp_color_id,
+                     move.object_label_id,
                      false,
                      {{endpoint, endpoint}} });
             }
@@ -243,7 +248,7 @@ namespace Slic3r {
 
                 BaseRenderer::init(mode, preset_bundle);
 
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": enter, m_buffers.size=%1%")
+                BOOST_LOG_TRIVIAL(info) << boost::format("enter, m_buffers.size=%1%")
                     % m_buffers.size();
                 // initializes opengl data of TBuffers
                 for (size_t i = 0; i < m_buffers.size(); ++i) {
@@ -296,7 +301,7 @@ namespace Slic3r {
                 }
 
                 m_gl_data_initialized = true;
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": finished");
+                BOOST_LOG_TRIVIAL(info) << boost::format("finished");
             }
 
             std::vector<int> LegacyRenderer::get_plater_extruder()
@@ -338,7 +343,7 @@ namespace Slic3r {
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
                 //BBS: always render shells in preview window
                 glsafe(::glEnable(GL_DEPTH_TEST));
-                render_shells();
+                render_shells(m_roles.empty());
                 m_legend_height = 0.0f;
                 if (m_roles.empty())
                     return;
@@ -351,7 +356,7 @@ namespace Slic3r {
                 }
                 render_sequential_view(canvas_width, canvas_height, right_margin);
 #if ENABLE_GCODE_VIEWER_STATISTICS
-                render_statistics();
+                render_statistics(float(canvas_width));
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
                 //BBS render slider
                 render_slider(canvas_width, canvas_height);
@@ -472,7 +477,7 @@ namespace Slic3r {
                             };
                         unsigned char begin_id = buffer_id(EMoveType::Retract);
                         unsigned char end_id = buffer_id(EMoveType::Count);
-                        BOOST_LOG_TRIVIAL(info) << boost::format("render_calibration_thumbnail: begin_id %1%, end_id %2%") % begin_id % end_id;
+                        BOOST_LOG_TRIVIAL(info) << boost::format("render_calibration_thumbnail: begin_id %1%, end_id %2%") % int(begin_id) % int(end_id);
                         for (unsigned char i = begin_id; i < end_id; ++i) {
                             TBuffer& buffer = m_buffers[i];
                             if (!buffer.visible || !buffer.has_data())
@@ -852,7 +857,7 @@ namespace Slic3r {
                 CNumericLocalesSetter locales_setter;
                 FILE* fp = boost::nowide::fopen(mat_filename.string().c_str(), "w");
                 if (fp == nullptr) {
-                    BOOST_LOG_TRIVIAL(error) << "LegacyRenderer::export_toolpaths_to_obj: Couldn't open " << mat_filename.string().c_str() << " for writing";
+                    BOOST_LOG_TRIVIAL(error) << "Couldn't open " << mat_filename.string().c_str() << " for writing";
                     return;
                 }
                 fprintf(fp, "# G-Code Toolpaths Materials\n");
@@ -868,7 +873,7 @@ namespace Slic3r {
                 // save geometry file
                 fp = boost::nowide::fopen(filename, "w");
                 if (fp == nullptr) {
-                    BOOST_LOG_TRIVIAL(error) << "LegacyRenderer::export_toolpaths_to_obj: Couldn't open " << filename << " for writing";
+                    BOOST_LOG_TRIVIAL(error) << "Couldn't open " << filename << " for writing";
                     return;
                 }
                 fprintf(fp, "# G-Code Toolpaths\n");
@@ -988,6 +993,19 @@ namespace Slic3r {
                 m_p_extrusions->role_visibility_flags = flags;
             }
 
+            void LegacyRenderer::do_set_view_type(EViewType type)
+            {
+                const bool change_batching = (m_view_type == EViewType::Objects) != (type == EViewType::Objects);
+                BaseRenderer::do_set_view_type(type);
+                if (change_batching && !m_roles.empty() &&
+                    wxGetApp().app_config->get_bool("show_objects_in_preview")) {
+                    // Rebuild only when entering/leaving object shading. Other modes
+                    // retain the original path grouping, even with this preference on.
+                    SimpleEvent event(EVT_OBJECTS_PREVIEW_CHANGED);
+                    wxPostEvent(wxGetApp().plater(), event);
+                }
+            }
+
             bool LegacyRenderer::load_toolpaths(const GCodeProcessorResult & gcode_result, const BuildVolume & build_volume, const std::vector<BoundingBoxf3>&exclude_bounding_box)
             {
                 // max index buffer size, in bytes
@@ -1049,9 +1067,9 @@ namespace Slic3r {
                     }
                     };
                 //BBS: modify a lot to support arc travel
-                auto add_indices_as_line = [](const GCodeProcessorResult::MoveVertex& prev, const GCodeProcessorResult::MoveVertex& curr, TBuffer& buffer,
+                auto add_indices_as_line = [this](const GCodeProcessorResult::MoveVertex& prev, const GCodeProcessorResult::MoveVertex& curr, TBuffer& buffer,
                     size_t& vbuffer_size, unsigned int ibuffer_id, IndexBuffer& indices, size_t move_id) {
-                        if (buffer.paths.empty() || prev.type != curr.type || !buffer.paths.back().matches(curr)) {
+                        if (buffer.paths.empty() || prev.type != curr.type || !buffer.paths.back().matches(curr, m_view_type == EViewType::Objects)) {
                             buffer.add_path(curr, ibuffer_id, indices.size(), move_id - 1);
                             buffer.paths.back().sub_paths.front().first.position = prev.position;
                         }
@@ -1067,7 +1085,7 @@ namespace Slic3r {
                         last_path.sub_paths.back().last = { ibuffer_id, indices.size() - 1, move_id, curr.position };
                     };
                 // format data into the buffers to be rendered as solid.
-                auto add_vertices_as_solid = [](const GCodeProcessorResult::MoveVertex& prev, const GCodeProcessorResult::MoveVertex& curr, TBuffer& buffer, unsigned int vbuffer_id, VertexBuffer& vertices, size_t move_id) {
+                auto add_vertices_as_solid = [this](const GCodeProcessorResult::MoveVertex& prev, const GCodeProcessorResult::MoveVertex& curr, TBuffer& buffer, unsigned int vbuffer_id, VertexBuffer& vertices, size_t move_id) {
                     auto store_vertex = [](VertexBuffer& vertices, const Vec3f& position, const Vec3f& normal) {
                         // append position
                         vertices.push_back(position.x());
@@ -1078,7 +1096,7 @@ namespace Slic3r {
                         vertices.push_back(normal.y());
                         vertices.push_back(normal.z());
                         };
-                    if (buffer.paths.empty() || prev.type != curr.type || !buffer.paths.back().matches(curr)) {
+                    if (buffer.paths.empty() || prev.type != curr.type || !buffer.paths.back().matches(curr, m_view_type == EViewType::Objects)) {
                         buffer.add_path(curr, vbuffer_id, vertices.size(), move_id - 1);
                         buffer.paths.back().sub_paths.back().first.position = prev.position;
                     }
@@ -1163,7 +1181,7 @@ namespace Slic3r {
                             store_triangle(indices, v_offsets[4], v_offsets[6], v_offsets[7]);
                             store_triangle(indices, v_offsets[4], v_offsets[5], v_offsets[6]);
                             };
-                        if (buffer.paths.empty() || prev.type != curr.type || !buffer.paths.back().matches(curr)) {
+                        if (buffer.paths.empty() || prev.type != curr.type || !buffer.paths.back().matches(curr, m_view_type == EViewType::Objects)) {
                             buffer.add_path(curr, ibuffer_id, indices.size(), move_id - 1);
                             buffer.paths.back().sub_paths.back().first.position = prev.position;
                         }
@@ -1319,7 +1337,7 @@ namespace Slic3r {
                 if (p_sequential_view) {
                     m_max_bounding_box.merge(m_paths_bounding_box.max + p_sequential_view->marker.get_bounding_box().size().z() * Vec3d::UnitZ());
                 }
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(",m_paths_bounding_box {%1%, %2%}-{%3%, %4%}\n")
+                BOOST_LOG_TRIVIAL(info) << boost::format("m_paths_bounding_box {%1%, %2%}-{%3%, %4%}\n")
                     % m_paths_bounding_box.min.x() % m_paths_bounding_box.min.y() % m_paths_bounding_box.max.x() % m_paths_bounding_box.max.y();
                 //if (wxGetApp().is_editor())
                 {
@@ -1333,7 +1351,7 @@ namespace Slic3r {
                             p_sequential_view->gcode_ids.push_back(move.gcode_id);
                     }
                 }
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(",m_contained_in_bed %1%\n") % m_contained_in_bed;
+                BOOST_LOG_TRIVIAL(info) << boost::format("m_contained_in_bed %1%\n") % m_contained_in_bed;
                 std::vector<MultiVertexBuffer> vertices(m_buffers.size());
                 std::vector<MultiIndexBuffer> indices(m_buffers.size());
                 std::vector<InstanceBuffer> instances(m_buffers.size());
@@ -1364,7 +1382,7 @@ namespace Slic3r {
                     }
                     const unsigned char id = buffer_id(curr.type);
                     if (id >= m_buffers.size()) {//Add an array protection
-                        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " m_buffers array bound";
+                        BOOST_LOG_TRIVIAL(error) << "m_buffers array bound";
                         continue;
                     }
                     TBuffer& t_buffer = m_buffers[id];
@@ -1373,7 +1391,7 @@ namespace Slic3r {
                     InstanceIdBuffer& inst_id_buffer = instances_ids[id];
                     InstancesOffsets& inst_offsets = instances_offsets[id];
                     /*if (i%1000 == 1) {
-                        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(":i=%1%, buffer_id %2% render_type %3%, gcode_id %4%\n")
+                        BOOST_LOG_TRIVIAL(info) << boost::format("i=%1%, buffer_id %2% render_type %3%, gcode_id %4%\n")
                             %i %(int)id %(int)t_buffer.render_primitive_type %curr.gcode_id;
                     }*/
                     // ensure there is at least one vertex buffer
@@ -1388,7 +1406,7 @@ namespace Slic3r {
                         v_multibuffer.push_back(VertexBuffer());
                         if (t_buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::Triangle) {
                             Path& last_path = t_buffer.paths.back();
-                            if (prev.type == curr.type && last_path.matches(curr))
+                            if (prev.type == curr.type && last_path.matches(curr, m_view_type == EViewType::Objects))
                                 last_path.add_sub_path(prev, static_cast<unsigned int>(v_multibuffer.size()) - 1, 0, move_id - 1);
                         }
                     }
@@ -1426,7 +1444,7 @@ namespace Slic3r {
                 }
                 /*for (size_t b = 0; b < vertices.size(); ++b) {
                     MultiVertexBuffer& v_multibuffer = vertices[b];
-                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(":b=%1%, vertex buffer count %2%\n")
+                    BOOST_LOG_TRIVIAL(info) << boost::format("b=%1%, vertex buffer count %2%\n")
                         %b %v_multibuffer.size();
                 }*/
                 auto extract_move_id = [&biased_seams_ids](size_t id) {
@@ -1741,7 +1759,7 @@ namespace Slic3r {
                 m_conflict_result = gcode_result.conflict_result;
                 if (m_conflict_result) { m_conflict_result.value().layer = m_layers.get_l_at(m_conflict_result.value()._height); }
                 //BBS: add logs
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": finished, m_buffers size %1%!") % m_buffers.size();
+                BOOST_LOG_TRIVIAL(info) << boost::format("finished, m_buffers size %1%!") % m_buffers.size();
                 return !m_layers.empty();
             }
             void LegacyRenderer::refresh_render_paths(bool keep_sequential_current_first, bool keep_sequential_current_last) const
@@ -1749,7 +1767,7 @@ namespace Slic3r {
 #if ENABLE_GCODE_VIEWER_STATISTICS
                 auto start_time = std::chrono::high_resolution_clock::now();
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
-                BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": enter, m_buffers size %1%!") % m_buffers.size();
+                BOOST_LOG_TRIVIAL(debug) << boost::format("enter, m_buffers size %1%!") % m_buffers.size();
                 auto extrusion_color = [this](const Path& path) {
                     ColorRGBA color;
                     switch (m_view_type)
@@ -1770,6 +1788,17 @@ namespace Slic3r {
                         color = adjust_color_for_rendering(color.get_data());
                         break;
                     }
+                    case EViewType::Objects: {
+                        if (path.object_label_id < 0) {
+                            color = ColorRGBA::GRAY();
+                        } else {
+                            const Range object_range(static_cast<float>(m_object_preview.label_min),
+                                                     static_cast<float>(m_object_preview.label_max));
+                            color = object_range.get_color_at(static_cast<float>(path.object_label_id));
+                            color = adjust_color_for_rendering(color.get_data());
+                        }
+                        break;
+                    }
                     case EViewType::FilamentId: {
                         float id = float(path.extruder_id) / 256;
                         float role = float(path.role) / 256;
@@ -1777,6 +1806,21 @@ namespace Slic3r {
                         break;
                     }
                     // helio
+                    case EViewType::WarpageDisplacement:
+                    case EViewType::WarpageDispX:
+                    case EViewType::WarpageDispY:
+                    case EViewType::WarpageDispZ:
+                    case EViewType::WarpageRisk:
+                    case EViewType::WarpageTIGradient:
+                    case EViewType::WarpageThermalStrain:
+                    case EViewType::WarpageHullShrinkage:
+                    case EViewType::WarpageLayerShrinkage:
+                    {
+                        const size_t index = warpage_index(m_view_type);
+                        const auto& range = m_p_extrusions->ranges.warpage[index];
+                        const float value = path.warpage[index];
+                        color = std::isfinite(value) ? range.get_color_at(std::clamp(value, range.min, range.max)) : ColorRGBA::GRAY(); break;
+                    }
                     case EViewType::ThermalIndexMin: { color = m_p_extrusions->ranges.thermal_index_min.get_color_at(path.thermal_index_min); break; }
                     case EViewType::ThermalIndexMax: { color = m_p_extrusions->ranges.thermal_index_max.get_color_at(path.thermal_index_max); break; }
                     case EViewType::ThermalIndexMean: { color = m_p_extrusions->ranges.thermal_index_mean.get_color_at(path.thermal_index_mean); break; }
@@ -1904,7 +1948,7 @@ namespace Slic3r {
                 else {
                     p_sequential_view->current.last = keep_sequential_current_last ? std::clamp(p_sequential_view->current.last, global_endpoints.first, global_endpoints.last) : global_endpoints.last;
                 }
-                // get the world position from the vertex buffer
+                // get the world position of the current move
                 bool found = false;
                 for (const TBuffer& buffer : m_buffers) {
                     if (buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::InstancedModel ||
@@ -1927,46 +1971,17 @@ namespace Slic3r {
                             if (path.contains(p_sequential_view->current.last)) {
                                 const int sub_path_id = path.get_id_of_sub_path_containing(p_sequential_view->current.last);
                                 if (sub_path_id != -1) {
-                                    const Path::Sub_Path& sub_path = path.sub_paths[sub_path_id];
-                                    unsigned int offset = static_cast<unsigned int>(p_sequential_view->current.last - sub_path.first.s_id);
-                                    if (offset > 0) {
-                                        if (buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::Line) {
-                                            for (size_t i = sub_path.first.s_id + 1; i < p_sequential_view->current.last + 1; i++) {
-                                                size_t move_id = m_ssid_to_moveid_map[i];
-                                                const GCodeProcessorResult::MoveVertex& curr = m_gcode_result->moves[move_id];
-                                                if (curr.is_arc_move()) {
-                                                    offset += curr.interpolation_points.size();
-                                                }
-                                            }
-                                            offset = 2 * offset - 1;
-                                        }
-                                        else if (buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::Triangle) {
-                                            unsigned int indices_count = buffer.indices_per_segment();
-                                            // BBS: modify to support moves which has internal point
-                                            for (size_t i = sub_path.first.s_id + 1; i < p_sequential_view->current.last + 1; i++) {
-                                                size_t move_id = m_ssid_to_moveid_map[i];
-                                                const GCodeProcessorResult::MoveVertex& curr = m_gcode_result->moves[move_id];
-                                                if (curr.is_arc_move()) {
-                                                    offset += curr.interpolation_points.size();
-                                                }
-                                            }
-                                            offset = indices_count * (offset - 1) + (indices_count - 2);
-                                            if (sub_path_id == 0)
-                                                offset += 6; // add 2 triangles for starting cap
-                                        }
-                                    }
-                                    offset += static_cast<unsigned int>(sub_path.first.i_id);
-                                    // gets the vertex index from the index buffer on gpu
-                                    if (sub_path.first.b_id >= 0 && sub_path.first.b_id < buffer.indices.size()) {
-                                        const IBuffer& i_buffer = buffer.indices[sub_path.first.b_id];
-                                        unsigned int index = 0;
-                                        glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, i_buffer.ibo));
-                                        glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>(offset * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&index)));
-                                        glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-                                        // gets the position from the vertices buffer on gpu
-                                        glsafe(::glBindBuffer(GL_ARRAY_BUFFER, i_buffer.vbo));
-                                        glsafe(::glGetBufferSubData(GL_ARRAY_BUFFER, static_cast<GLintptr>(index* buffer.vertices.vertex_size_bytes()), static_cast<GLsizeiptr>(3 * sizeof(float)), static_cast<void*>(p_sequential_view->current_position.data())));
-                                        glsafe(::glBindBuffer(GL_ARRAY_BUFFER, 0));
+                                    // Take the nozzle position straight from the move. The vertex buffer only holds
+                                    // the corners of the extruded prism, which are half an extrusion width and half
+                                    // a layer height away from the tool path itself, so reading it back would report
+                                    // a position which does not match the one shown by AdvancedRenderer.
+                                    // AdvancedRenderer counterpart: AdvancedRenderer::render() obtains the move id
+                                    // from LayerManager::get_current_move_id() and reads the same MoveVertex::position
+                                    // (AdvancedRenderer.cpp:730-735 and 2511-2515).
+                                    if (m_gcode_result != nullptr && p_sequential_view->current.last < m_ssid_to_moveid_map.size()) {
+                                        const size_t move_id = m_ssid_to_moveid_map[p_sequential_view->current.last];
+                                        if (move_id < m_gcode_result->moves.size())
+                                            p_sequential_view->current_position = m_gcode_result->moves[move_id].position;
                                     }
                                     p_sequential_view->current_offset = Vec3f::Zero();
                                     found = true;
@@ -2062,7 +2077,7 @@ namespace Slic3r {
                     glsafe(::glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &buffer_size));
                     glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
                     if (render_path->offsets.back() + render_path->sizes.back() * sizeof(IBufferType) > buffer_size)
-                        BOOST_LOG_TRIVIAL(error) << "LegacyRenderer::refresh_render_paths: Invalid render path data";
+                        BOOST_LOG_TRIVIAL(error) << "Invalid render path data";
 #endif
                 }
                 // Removes empty render paths and sort.
@@ -2389,7 +2404,7 @@ namespace Slic3r {
             }
 
 #if ENABLE_GCODE_VIEWER_STATISTICS
-            void LegacyRenderer::render_statistics()
+            void LegacyRenderer::render_statistics(float canvas_width)
             {
                 static const float offset = 275.0f;
                 ImGuiWrapper& imgui = *wxGetApp().imgui();
@@ -2424,7 +2439,7 @@ namespace Slic3r {
                     ImGui::SameLine(offset);
                     imgui.text(std::to_string(counter));
                     };
-                imgui.set_next_window_pos(0.5f * wxGetApp().plater()->get_current_canvas3D()->get_canvas_size().get_width(), 0.0f, ImGuiCond_Once, 0.5f, 0.0f);
+                imgui.set_next_window_pos(0.5f * canvas_width, 0.0f, ImGuiCond_Once, 0.5f, 0.0f);
                 ImGui::SetNextWindowSizeConstraints({ 300.0f, 100.0f }, { 600.0f, 900.0f });
                 imgui.begin(std::string("GCodeViewer Statistics"), ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize);
                 ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
@@ -2521,7 +2536,7 @@ namespace Slic3r {
                     }
                     int64_t layers_size = SLIC3R_STDVEC_MEMSIZE(m_layers.get_zs(), double);
                     layers_size += SLIC3R_STDVEC_MEMSIZE(m_layers.get_endpoints(), Layers::Endpoints);
-                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format("paths_size %1%, render_paths_size %2%,layers_size %3%, additional %4%\n")
+                    BOOST_LOG_TRIVIAL(info) << boost::format("paths_size %1%, render_paths_size %2%,layers_size %3%, additional %4%\n")
                         % paths_size % render_paths_size % layers_size % additional;
                     BOOST_LOG_TRIVIAL(trace) << label
                         << "(" << format_memsize_MB(additional + paths_size + render_paths_size + layers_size) << ");"

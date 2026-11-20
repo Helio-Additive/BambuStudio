@@ -7,6 +7,7 @@
 #include <boost/filesystem.hpp>
 #include <Message_ProgressIndicator.hxx>
 #include <atomic>
+#include "libslic3r/Log.hpp"
 
 namespace fs = boost::filesystem;
 
@@ -98,7 +99,7 @@ public:
     Standard_Boolean UserBreak() override { return should_stop.load(); }
 
     void Show(const Message_ProgressScope&, const Standard_Boolean) override {
-        std::cout << "Progress: " << GetPosition() << "%" << std::endl;
+        BOOST_LOG_TRIVIAL(trace) << "Progress: " << GetPosition() << "%";
     }
 private:
     std::atomic<bool>& should_stop;
@@ -128,7 +129,9 @@ public:
                      double linear_defletion = 0.003,
                      double angle_defletion = 0.5);
 
-    std::atomic<bool> m_stop_mesh;
+    // Before C++20, a default-constructed std::atomic has no initial value.
+    // Set it to false, or a meshing run can see a false cancel request.
+    std::atomic<bool> m_stop_mesh{false};
     void update_process(int load_stage, int current, int total, bool& cancel);
     const std::vector<std::string>& get_unclosed_shells() const { return m_unclosed_shells; }
 private:

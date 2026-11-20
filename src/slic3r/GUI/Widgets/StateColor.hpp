@@ -16,6 +16,7 @@ namespace ThemeColor {
 inline const wxColour BrandGreen{"#00AE42"};        // primary accent — buttons, selected borders, focus rings
 inline const wxColour BrandGreenHovered{"#3DCB73"}; // BrandGreen button hover state (== rgb 61,203,115)
 inline const wxColour BrandGreenPressed{"#1B8844"}; // BrandGreen button pressed state (== rgb 27,136,68)
+inline const wxColour LightGreen{"#EDFAF2"};        // Light green success/tint background
 
 // Feedback / status — pre-declared because their meaning is obvious.
 inline const wxColour Warning{"#FF6F00"}; // attention / needs-action — orange. 14+ raw-hex consumers.
@@ -32,6 +33,8 @@ inline const wxColour TextDisabled{"#909090"};  // disabled / inactive text (== 
 
 // Pure white (card / dialog / hub fill)
 inline const wxColour White{"#FFFFFF"};
+// White that stays white in dark mode, for text on BrandGreen or other accent fills
+inline const wxColour WhiteFixed{"#FFFFFE"};
 
 // Neutral grey scale — lightest (200) → darkest (700). Suffixes follow the
 // legacy WXCOLOUR_GREY* macro numbering (which skips 600); 250 and 350 are

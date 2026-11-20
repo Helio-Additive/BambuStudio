@@ -44,9 +44,28 @@ namespace Slic3r {
                 ThermalIndexMin,
                 ThermalIndexMax,
                 ThermalIndexMean,
+                WarpageDisplacement,
+                WarpageDispX,
+                WarpageDispY,
+                WarpageDispZ,
+                WarpageRisk,
+                WarpageTIGradient,
+                WarpageThermalStrain,
+                WarpageHullShrinkage,
+                WarpageLayerShrinkage,
+
                 // end helio
+                // Preserve existing shader view IDs.
+                Objects,
                 Count
             };
+
+            inline bool is_warpage_view(EViewType type) {
+                return type >= EViewType::WarpageDisplacement && type <= EViewType::WarpageLayerShrinkage;
+            }
+            inline size_t warpage_index(EViewType type) {
+                return size_t(type) - size_t(EViewType::WarpageDisplacement);
+            }
 
             struct ExtruderFilament
             {
@@ -182,7 +201,7 @@ namespace Slic3r {
                 virtual bool load_toolpaths(const GCodeProcessorResult& gcode_result, const BuildVolume& build_volume, const std::vector<BoundingBoxf3>& exclude_bounding_box) = 0;
                 void update_toolpath_outside_state(const GCodeProcessorResult& gcode_result, const BuildVolume& build_volume,
                     const std::vector<BoundingBoxf3>& exclude_bounding_box, Points&& pts);
-                void render_shells();
+                void render_shells(bool skip_wipe_tower = false);
                 void render_slider(int canvas_width, int canvas_height);
                 virtual void render_legend(float& legend_height, int canvas_width, int canvas_height, int right_margin);
                 void apply_view_type_selection(int view_type_sel, EViewType type);
@@ -206,6 +225,19 @@ namespace Slic3r {
 
             protected:
                 bool m_legend_enabled{ true };
+                struct ObjectPreviewRow
+                {
+                    int label_id;
+                    std::string name;
+                    Color color;
+                };
+                struct ObjectPreviewState
+                {
+                    std::vector<ObjectPreviewRow> objects;
+                    float label_min{ 0.0f };
+                    float label_max{ 0.0f };
+                };
+                ObjectPreviewState m_object_preview;
                 float m_legend_height{ 0.0f };
                 size_t m_extruders_count{ 0 };
                 std::vector<ExtrusionRole> m_roles;
@@ -241,6 +273,9 @@ namespace Slic3r {
                 std::vector<ExtruderFilament> m_left_extruder_filament;
                 std::vector<ExtruderFilament> m_right_extruder_filament;
                 size_t m_nozzle_nums{ 0 };
+                bool   m_single_ext_multi_nozzle{ false };
+                int    m_ams_nozzle_idx{ -1 };
+                int    m_total_nozzle_count{ 1 };
                 bool m_fold{ false };
                 std::vector<size_t> m_ssid_to_moveid_map;
                 std::vector<int> m_plater_extruder;
@@ -444,6 +479,9 @@ namespace Slic3r {
                 Range thermal_index_max{ -100.0f, 100.0f, BaseRenderer::Thermal_Index_Range_Colors };
                 // Color mapping by thermal index mean
                 Range thermal_index_mean{ -100.0f, 100.0f, BaseRenderer::Thermal_Index_Range_Colors };
+                std::array<Range, 9> warpage;
+                std::array<bool, 9> warpage_available{};
+                void load_warpage(const GCodeProcessorResult& result);
                 // end helio
 
                 void reset() {
@@ -459,6 +497,8 @@ namespace Slic3r {
                     thermal_index_min.reset();
                     thermal_index_max.reset();
                     thermal_index_mean.reset();
+                    for (auto& range : warpage) range.reset();
+                    warpage_available.fill(false);
                     // end helio
                 }
             };

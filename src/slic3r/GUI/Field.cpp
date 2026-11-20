@@ -17,6 +17,7 @@
 #include <wx/tokenzr.h>
 #include <boost/algorithm/string/predicate.hpp>
 #include "OG_CustomCtrl.hpp"
+#include "ParamTooltip.hpp"
 #include "MsgDialog.hpp"
 #include "BitmapComboBox.hpp"
 
@@ -29,6 +30,9 @@
 #include "Widgets/TextCtrl.h"
 
 #include "../Utils/ColorSpaceConvert.hpp"
+#ifdef __WXGTK3__
+#include <gtk/gtk.h>
+#endif
 #ifdef __WXOSX__
 #define wxOSX true
 #else
@@ -167,23 +171,12 @@ void Field::toggle(bool en) { en && !m_opt.readonly ? enable() : disable(); }
 
 wxString Field::get_tooltip_text(const wxString &default_string)
 {
-	wxString tooltip_text("");
-#ifdef NDEBUG
-	wxString tooltip = _(m_opt.tooltip);
-    edit_tooltip(tooltip);
-
-    std::string opt_id = m_opt_id;
-    auto hash_pos = opt_id.find("#");
-    if (hash_pos != std::string::npos) {
-        opt_id.replace(hash_pos, 1,"[");
-        opt_id += "]";
-    }
-
-	if (tooltip.length() > 0)
-        tooltip_text = tooltip + "\n" +
-        _(L("parameter name")) + "\t: " + opt_id;
- #endif
-	return tooltip_text;
+    // Deliberately empty: by product decision the edit controls carry no native tooltip. The rich
+    // ParamTooltip card shown on the option label is the single source for the parameter
+    // description (and, in developer mode, the opt_key pill), so a second tip on the control would
+    // duplicate it. All the SetToolTip(get_tooltip_text(...)) call sites are kept so the control
+    // tip can be reinstated by returning text here if that decision changes.
+    return wxString();
 }
 
 bool Field::is_matched(const std::string& string, const std::string& pattern)
@@ -485,6 +478,54 @@ void release_window_pools()
     spools2.clear();
 }
 
+#ifdef __WXGTK3__
+// GtkTextLayout caches the display of one text line and clears that cache only when
+// the line is deleted while the layout is attached to the line's buffer. wxGTK's
+// Freeze() swaps a multiline control's buffer for a temporary one, so a SetValue()
+// while frozen (Tab pages freeze around rebuilds) can free the cached line without
+// telling the layout. The next cursor redraw then reads the freed line. Disabling
+// the main window for a modal ProgressDialog does such a redraw, which crashed
+// MakerWorld "Download and open" in _gtk_text_btree_find_line_top whenever the
+// process Others page, with the multiline post_process field, was selected.
+//
+// Asking GTK for the location of a valid iterator makes the layout rebuild its cache
+// for that line. It replaces a stale entry by comparing pointers only, without
+// dereferencing the freed line. Do this whenever the view changes buffers.
+class MultilineTextCtrl : public wxTextCtrl
+{
+public:
+    using wxTextCtrl::wxTextCtrl;
+
+protected:
+    void DoFreeze() override
+    {
+        wxTextCtrl::DoFreeze();
+        drop_stale_line_display();
+    }
+
+    void DoThaw() override
+    {
+        wxTextCtrl::DoThaw();
+        drop_stale_line_display();
+    }
+
+private:
+    void drop_stale_line_display()
+    {
+        GtkWidget *widget = GetConnectWidget();
+        if (widget == nullptr || !GTK_IS_TEXT_VIEW(widget))
+            return;
+        GtkTextView *view = GTK_TEXT_VIEW(widget);
+        GtkTextIter  start;
+        gtk_text_buffer_get_start_iter(gtk_text_view_get_buffer(view), &start);
+        GdkRectangle location;
+        gtk_text_view_get_iter_location(view, &start, &location);
+    }
+};
+#else
+using MultilineTextCtrl = wxTextCtrl;
+#endif
+
 template<typename T>
 struct Builder
 {
@@ -629,7 +670,7 @@ void TextCtrl::BUILD() {
 
 	// BBS: new param ui style
     // const long style = m_opt.multiline ? wxTE_MULTILINE : wxTE_PROCESS_ENTER/*0*/;
-    static Builder<wxTextCtrl> builder1;
+    static Builder<MultilineTextCtrl> builder1;
     static Builder<::TextInput> builder2;
     auto temp = m_opt.multiline
         ? (wxWindow*)builder1.build(m_parent, wxID_ANY, "", wxDefaultPosition, size, wxTE_MULTILINE)
@@ -1226,6 +1267,9 @@ void Choice::BUILD()
                 } else {
                     temp->Append(_(el));
                 }
+                // Per-value tip shown when hovering this dropdown item
+                const wxString item_tip = ParamTooltip::ItemTooltip(m_opt_id, m_opt.enum_values[i]);
+                if (!item_tip.IsEmpty()) temp->SetItemTooltip(i, item_tip);
                 ++i;
             }
 		}
@@ -1436,9 +1480,17 @@ void Choice::set_value(const boost::any& value, bool change_event)
         if (m_opt_id.compare("host_type") == 0 && val != 0 &&
 			m_opt.enum_values.size() > field->GetCount()) // for case, when PrusaLink isn't used as a HostType
 			val--;
-        if (m_opt_id == "top_surface_pattern" || m_opt_id == "bottom_surface_pattern" || m_opt_id == "internal_solid_infill_pattern" || m_opt_id == "sparse_infill_pattern" ||
-            m_opt_id == "support_style" || m_opt_id == "curr_bed_type" || m_opt_id == "locked_skin_infill_pattern" || m_opt_id == "locked_skeleton_infill_pattern")
+        if (m_opt_id == "top_surface_pattern" || m_opt_id == "bottom_surface_pattern" || m_opt_id == "internal_solid_infill_pattern" || m_opt_id == "sub_top_surface_pattern" || m_opt_id == "sparse_infill_pattern" ||
+            m_opt_id == "support_style" || m_opt_id == "curr_bed_type" || m_opt_id == "locked_skin_infill_pattern" || m_opt_id == "locked_skeleton_infill_pattern" ||
+            m_opt_id == "ironing_pattern" || m_opt_id == "conformal_stagger")
 		{
+            // Dropdown shows Off/Alternate only. Map leftover stagger modes onto those two.
+            if (m_opt_id == "conformal_stagger") {
+                if (val == int(ConformalStagger::HalfStep))
+                    val = int(ConformalStagger::Alternate);
+                else if (val == int(ConformalStagger::Orthogonal))
+                    val = int(ConformalStagger::None);
+            }
 			std::string key;
 			const t_config_enum_values& map_names = *m_opt.enum_keys_map;
 			for (auto it : map_names)
@@ -1524,8 +1576,8 @@ boost::any& Choice::get_value()
 	{
         if (m_opt.nullable && field->GetSelection() == -1)
             m_value = ConfigOptionEnumsGenericNullable::nil_value();
-        else if (m_opt_id == "top_surface_pattern" || m_opt_id == "bottom_surface_pattern" || m_opt_id == "internal_solid_infill_pattern" || m_opt_id == "sparse_infill_pattern" || m_opt_id == "support_style" || m_opt_id == "curr_bed_type" || m_opt_id == "locked_skin_infill_pattern" ||
-                 m_opt_id == "locked_skeleton_infill_pattern") {
+        else if (m_opt_id == "top_surface_pattern" || m_opt_id == "bottom_surface_pattern" || m_opt_id == "internal_solid_infill_pattern" || m_opt_id == "sub_top_surface_pattern" || m_opt_id == "sparse_infill_pattern" || m_opt_id == "support_style" || m_opt_id == "curr_bed_type" || m_opt_id == "locked_skin_infill_pattern" ||
+                 m_opt_id == "locked_skeleton_infill_pattern" || m_opt_id == "ironing_pattern" || m_opt_id == "conformal_stagger") {
 			const std::string& key = m_opt.enum_values[field->GetSelection()];
 			m_value = int(m_opt.enum_keys_map->at(key));
 		}

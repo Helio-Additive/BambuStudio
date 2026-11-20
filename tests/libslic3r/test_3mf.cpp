@@ -2,6 +2,9 @@
 
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Format/3mf.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
+#include "miniz/miniz.h"
+#include <fstream>
 #include "libslic3r/Format/STL.hpp"
 
 #include <boost/filesystem/operations.hpp>
@@ -131,3 +134,81 @@ SCENARIO("2D convex hull of sinking object", "[3mf]") {
     }
 }
 
+
+// The standard member must stay printable even for consumers that do not
+// understand Helio's optional preview metadata (including printer firmware).
+TEST_CASE("Bambu 3MF keeps annotated preview separate from printer payload", "[3mf][helio]")
+{
+    namespace fs = boost::filesystem;
+    const bool with_preview = GENERATE(false, true);
+    const fs::path dir = fs::temp_directory_path() / fs::unique_path("helio-3mf-%%%%-%%%%");
+    fs::create_directories(dir);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { boost::system::error_code ec; fs::remove_all(path, ec); }
+    } cleanup{dir};
+    const std::string printable = "G1 X10 Y20 E1\n";
+    const std::string preview = "G1 X10 Y20 E1 ; (wr=0.7)\n";
+    const auto print_path = (dir / "print.gcode").string();
+    const auto preview_path = (dir / "preview.gcode").string();
+    std::ofstream(print_path, std::ios::binary) << printable;
+    std::ofstream(preview_path, std::ios::binary) << preview;
+
+    Model model;
+    DynamicPrintConfig config;
+    config.apply(FullPrintConfig::defaults());
+    PlateData plate;
+    plate.plate_index = 0;
+    plate.is_sliced_valid = true;
+    plate.gcode_file = print_path;
+    if (with_preview)
+        plate.preview_gcode_file = preview_path;
+    const auto archive_path = (dir / "test.gcode.3mf").string();
+    StoreParams params;
+    params.path = archive_path.c_str();
+    params.model = &model;
+    params.config = &config;
+    params.plate_data_list = {&plate};
+    params.strategy = SaveStrategy::WithGcode | SaveStrategy::SkipModel | SaveStrategy::SkipAuxiliary | SaveStrategy::Silence;
+    REQUIRE(store_bbs_3mf(params));
+
+    mz_zip_archive zip{};
+    REQUIRE(mz_zip_reader_init_file(&zip, archive_path.c_str(), 0));
+    struct CloseZip {
+        mz_zip_archive* zip;
+        ~CloseZip() { mz_zip_reader_end(zip); }
+    } close_zip{&zip};
+    auto read_member = [&](const char* name) {
+        size_t size = 0;
+        void* bytes = mz_zip_reader_extract_file_to_heap(&zip, name, &size, 0);
+        REQUIRE(bytes != nullptr);
+        std::string result(static_cast<const char*>(bytes), size);
+        mz_free(bytes);
+        return result;
+    };
+    CHECK(read_member("Metadata/plate_1.gcode") == printable);
+    const auto metadata = read_member("Metadata/model_settings.config");
+    if (with_preview) {
+        CHECK(read_member("Metadata/plate_1_helio_preview.gcode") == preview);
+        CHECK(metadata.find("key=\"helio_preview_gcode_file\" value=\"Metadata/plate_1_helio_preview.gcode\"") != std::string::npos);
+    } else {
+        CHECK(mz_zip_reader_locate_file(&zip, "Metadata/plate_1_helio_preview.gcode", nullptr, 0) < 0);
+        CHECK(metadata.find("helio_preview_gcode_file") == std::string::npos);
+    }
+    CHECK(metadata.find("key=\"gcode_file\" value=\"Metadata/plate_1.gcode\"") != std::string::npos);
+
+    Model imported_model;
+    DynamicPrintConfig imported_config;
+    PlateDataPtrs imported_plates;
+    struct ReleasePlates {
+        PlateDataPtrs* plates;
+        ~ReleasePlates() { release_PlateData_list(*plates); }
+    } release_plates{&imported_plates};
+    Semver version;
+    std::ifstream input(archive_path, std::ios::binary);
+    REQUIRE(load_gcode_3mf_from_stream(input, &imported_config, &imported_model, &imported_plates, &version));
+    REQUIRE(imported_plates.size() == 1);
+    CHECK(imported_plates.front()->gcode_file == "Metadata/plate_1.gcode");
+    CHECK(imported_plates.front()->preview_gcode_file ==
+        (with_preview ? "Metadata/plate_1_helio_preview.gcode" : ""));
+}

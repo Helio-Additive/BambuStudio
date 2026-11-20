@@ -34,12 +34,7 @@
     "filament_max_volumetric_speed": [
         "30",
         "40",
-        "40"
-    ],
-    "filament_preheat_temperature_delta": [
-        "20",
-        "20",
-        "20"
+        "30"
     ],
     "filament_ramming_travel_time": [
         "0",
@@ -49,7 +44,7 @@
     "filament_retraction_length": [
         "0.4",
         "0.4",
-        "0.4"
+        "0.8"
     ],
     "filament_tower_ironing_area": [
         "8"

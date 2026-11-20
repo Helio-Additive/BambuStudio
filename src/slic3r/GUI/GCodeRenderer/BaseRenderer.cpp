@@ -1,9 +1,12 @@
 #include "BaseRenderer.hpp"
 #include "slic3r/GUI/IMSlider.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
+#include "slic3r/GUI/Plater.hpp"
+#include "slic3r/GUI/GLCanvas3D.hpp"
 #include "slic3r/GUI/GUI_Utils.hpp"
 #include "slic3r/GUI/MsgDialog.hpp"
 #include "slic3r/GUI/FilamentGroupPopup.hpp"
+#include "slic3r/GUI/FilamentMapPanel.hpp"
 #include "slic3r/GUI/GLToolbar.hpp"
 #include "slic3r/GUI/DeviceCore/DevUtilBackend.h"
 #include "../DeviceCore/DevConfigUtil.h"
@@ -16,6 +19,9 @@
 #include <imgui/imgui_internal.h>
 #include <GL/glew.h>
 #include <chrono>
+#include <map>
+#include <limits>
+#include "libslic3r/Log.hpp"
 namespace
 {
     std::string get_view_type_string(Slic3r::GUI::gcode::EViewType view_type)
@@ -42,6 +48,8 @@ namespace
             return _u8L("Tool");
         else if (view_type == Slic3r::GUI::gcode::EViewType::ColorPrint)
             return _u8L("Filament");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::Objects)
+            return _u8L("Objects");
         else if (view_type == Slic3r::GUI::gcode::EViewType::LayerTime)
             return _u8L("Layer Time");
         // helio
@@ -51,6 +59,24 @@ namespace
             return _u8L("Thermal Index (max)");
         else if (view_type == Slic3r::GUI::gcode::EViewType::ThermalIndexMean)
             return _u8L("Thermal Index (mean)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDisplacement)
+            return _u8L("Warpage displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispX)
+            return _u8L("Warpage X displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispY)
+            return _u8L("Warpage Y displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageDispZ)
+            return _u8L("Warpage Z displacement (mm)");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageRisk)
+            return _u8L("Residual Stress Index");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageTIGradient)
+            return _u8L("Warpage TI gradient");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageThermalStrain)
+            return _u8L("Warpage thermal strain");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageHullShrinkage)
+            return _u8L("Hull Shrinkage Index");
+        else if (view_type == Slic3r::GUI::gcode::EViewType::WarpageLayerShrinkage)
+            return _u8L("Warpage layer shrinkage");
         // end helio
         return "";
     }
@@ -201,6 +227,8 @@ namespace Slic3r
             {
                 m_moves_slider = new IMSlider(0, 0, 0, 100, wxSL_HORIZONTAL);
                 m_layers_slider = new IMSlider(0, 0, 0, 100, wxSL_VERTICAL);
+                m_moves_slider->set_request_canvas_focus([]() { wxGetApp().plater()->get_current_canvas3D()->force_set_focus(); });
+                m_layers_slider->set_request_canvas_focus([]() { wxGetApp().plater()->get_current_canvas3D()->force_set_focus(); });
                 m_p_extrusions = std::make_shared<Extrusions>();
                 m_p_extrusions->reset_role_visibility_flags();
                 if (GUI::wxGetApp().app_config->get_bool("enable_record_gcodeviewer_option_item")) {
@@ -384,13 +412,13 @@ namespace Slic3r
 
             void BaseRenderer::load_shells(const Print& print, bool initialized, bool force_previewing)
             {
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": initialized=%1%, force_previewing=%2%") % initialized % force_previewing;
+                BOOST_LOG_TRIVIAL(info) << boost::format("initialized=%1%, force_previewing=%2%") % initialized % force_previewing;
                 if ((print.id().id == m_shells.print_id) && (print.get_modified_count() == m_shells.print_modify_count)) {
                     //BBS: update force previewing logic
                     if (force_previewing)
                         m_shells.previewing = force_previewing;
                     //already loaded
-                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": already loaded, print=%1% print_id=%2%, print_modify_count=%3%, force_previewing %4%") % (&print) % m_shells.print_id % m_shells.print_modify_count % force_previewing;
+                    BOOST_LOG_TRIVIAL(info) << boost::format("already loaded, print=%1% print_id=%2%, print_modify_count=%3%, force_previewing %4%") % (&print) % m_shells.print_id % m_shells.print_modify_count % force_previewing;
                     return;
                 }
                 //reset shell firstly
@@ -481,7 +509,7 @@ namespace Slic3r
                 m_shells.print_id = print.id().id;
                 m_shells.print_modify_count = print.get_modified_count();
                 m_shells.previewing = true;
-                BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": shell loaded, id change to %1%, modify_count %2%, object count %3%, glvolume count %4%")
+                BOOST_LOG_TRIVIAL(debug) << boost::format("shell loaded, id change to %1%, modify_count %2%, object count %3%, glvolume count %4%")
                     % m_shells.print_id % m_shells.print_modify_count % object_count % m_shells.volumes.volumes.size();
             }
 
@@ -557,11 +585,11 @@ namespace Slic3r
                 // avoid processing if called with the same gcode_result
                 if (m_last_result_id == gcode_result.id) {
                     //BBS: add logs
-                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": the same id %1%, return directly, result %2% ") % m_last_result_id % (&gcode_result);
+                    BOOST_LOG_TRIVIAL(info) << boost::format("the same id %1%, return directly, result %2% ") % m_last_result_id % (&gcode_result);
                     return;
                 }
                 //BBS: add logs
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": gcode result %1%, new id %2%, gcode file %3% ") % (&gcode_result) % m_last_result_id % PathSanitizer::sanitize(gcode_result.filename);
+                BOOST_LOG_TRIVIAL(info) << boost::format("gcode result %1%, new id %2%, gcode file %3% ") % (&gcode_result) % m_last_result_id % PathSanitizer::sanitize(gcode_result.filename);
                 // release gpu memory, if used
                 reset();
                 //BBS: add mutex for protection of gcode result
@@ -570,7 +598,7 @@ namespace Slic3r
                 //BBS: add safe check
                 if (gcode_result.moves.size() == 0) {
                     //result cleaned before slicing ,should return here
-                    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(": gcode result reset before, return directly!");
+                    BOOST_LOG_TRIVIAL(warning) << boost::format("gcode result reset before, return directly!");
                     gcode_result.unlock();
                     wxGetApp().plater()->schedule_background_process();
                     return;
@@ -579,6 +607,45 @@ namespace Slic3r
                 m_last_result_id = gcode_result.id;
                 m_gcode_result = &gcode_result;
                 m_only_gcode_in_preview = only_gcode;
+                if (wxGetApp().app_config->get_bool("show_objects_in_preview")) {
+                    std::map<int, std::string> names;
+                    for (const auto& move : gcode_result.moves) {
+                        if (move.type == EMoveType::Extrude && move.object_label_id >= 0)
+                            names.emplace(move.object_label_id, _u8L("Object") + " " + std::to_string(move.object_label_id));
+                    }
+                    std::map<const ModelObject*, size_t> total_copies;
+                    std::map<const ModelObject*, size_t> next_copy;
+                    for (const PrintObject* object : print.objects()) {
+                        if (object != nullptr)
+                            total_copies[object->model_object()] += object->instances().size();
+                    }
+                    for (const PrintObject* object : print.objects()) {
+                        if (object == nullptr)
+                            continue;
+                        const ModelObject* model = object->model_object();
+                        for (const PrintInstance& instance : object->instances()) {
+                            if (instance.model_instance == nullptr)
+                                continue;
+                            const size_t label = instance.model_instance->get_labeled_id();
+                            if (label > static_cast<size_t>(std::numeric_limits<int>::max()))
+                                continue;
+                            const auto row = names.find(static_cast<int>(label));
+                            if (row == names.end())
+                                continue;
+                            row->second = model != nullptr && !model->name.empty() ? model->name : _u8L("Object");
+                            const size_t copy = ++next_copy[model];
+                            if (total_copies[model] > 1)
+                                row->second += " (" + _u8L("Copy") + " " + std::to_string(copy) + ")";
+                        }
+                    }
+                    if (!names.empty()) {
+                        m_object_preview.label_min = static_cast<float>(names.begin()->first);
+                        m_object_preview.label_max = static_cast<float>(names.rbegin()->first);
+                        const Range colors(m_object_preview.label_min, m_object_preview.label_max);
+                        for (const auto& [label, name] : names)
+                            m_object_preview.objects.push_back({ label, name, colors.get_color_at(static_cast<float>(label)).get_data() });
+                    }
+                }
                 const auto& p_sequential_view = get_sequential_view();
                 if (p_sequential_view) {
                     p_sequential_view->gcode_window.load_gcode(gcode_result.filename, gcode_result.lines_ends);
@@ -588,7 +655,12 @@ namespace Slic3r
                 if (m_only_gcode_in_preview)
                     m_custom_gcode_per_print_z = gcode_result.custom_gcode_per_print_z;
                 m_max_print_height = gcode_result.printable_height;
+                if (m_max_print_height <= 0.0f) {
+                    // Fallback to build volume printable height if not provided by gcode result (e.g. unknown third-party G-code).
+                    m_max_print_height = static_cast<float>(build_volume.printable_height());
+                }
                 bool rt = load_toolpaths(gcode_result, build_volume, exclude_bounding_box);
+                m_p_extrusions->ranges.load_warpage(gcode_result);
                 //BBS: add mutex for protection of gcode result
                 if (!rt) {
                     gcode_result.unlock();
@@ -601,22 +673,50 @@ namespace Slic3r
                 std::vector<std::string> color_opt = print.config().option<ConfigOptionStrings>("filament_colour")->values;
                 std::vector<std::string> type_opt = print.config().option<ConfigOptionStrings>("filament_type")->values;
                 std::vector<unsigned char> support_filament_opt = print.config().option<ConfigOptionBools>("filament_is_support")->values;
+                // N1X single-extruder multi-nozzle: the grouping legend splits filaments by AMS vs fixed
+                // nozzle (group_id == ams_nozzle_idx) instead of by extruder. The per-filament nozzle is
+                // taken from the slice nozzle-group result (same source used to write group_id to 3MF).
+                {
+                    auto emnc = print.config().option<ConfigOptionIntsNullable>("extruder_max_nozzle_count");
+                    bool has_multi_nozzle = emnc && std::any_of(emnc->values.begin(), emnc->values.end(), [](int v) { return v > 1; });
+                    auto hh = print.config().option<ConfigOptionBool>("handle_hotend_as_extruder");
+                    m_single_ext_multi_nozzle = hh && hh->value && m_nozzle_nums == 1 && has_multi_nozzle;
+                    // 使用切片构建各耗材 group_id 时所用的同一 AMS 喷嘴索引（对切片后的 print.config() 调用 get_effective_ams_nozzle_idx）。带口径门控、基于实时
+                    // full_config 的变体可能与切片分组不一致
+                    m_ams_nozzle_idx = m_single_ext_multi_nozzle
+                        ? get_effective_ams_nozzle_idx(print.config())
+                        : -1;
+                    m_total_nozzle_count = (emnc && !emnc->values.empty()) ? emnc->values.front() : 1;
+                }
+                auto nozzle_group_result = print.get_nozzle_group_result();
                 for (auto extruder_id : m_extruder_ids) {
                     // 防御：某些异常工程文件中 project_settings.config 的
                     // filament_* 数组长度不一致 — filament_colour/type 可能为 N，但 filament_is_support
                     // 等可能缺失或更短，按 extruder_id 索引会越界。任一数组覆盖不到当前 extruder_id 时跳过。
-                    if (extruder_id >= filament_maps.size()
-                        || extruder_id >= type_opt.size()
-                        || extruder_id >= color_opt.size()
-                        || extruder_id >= support_filament_opt.size()) {
-                        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ": filament_* config arrays too short for extruder_id=" << int(extruder_id)
-                            << ", sizes=[map " << filament_maps.size()
-                            << ", type " << type_opt.size()
-                            << ", color " << color_opt.size()
-                            << ", is_support " << support_filament_opt.size() << "], skip";
+                    // filament_map is only required by the extruder-based (non-N1X) split.
+                    bool arrays_ok = extruder_id < type_opt.size()
+                        && extruder_id < color_opt.size()
+                        && extruder_id < support_filament_opt.size()
+                        && (m_single_ext_multi_nozzle || extruder_id < filament_maps.size());
+                    if (!arrays_ok) {
+                        BOOST_LOG_TRIVIAL(warning) << "filament_* config arrays too short for " << KV(log_key::extruder_id, int(extruder_id))
+                                                   << "sizes=[map " << filament_maps.size() << ", type " << type_opt.size() << ", color "
+                                                   << color_opt.size() << ", is_support " << support_filament_opt.size() << "], skip";
                         continue;
                     }
-                    if (filament_maps[extruder_id] == 1) {
+                    bool to_left;
+                    if (m_single_ext_multi_nozzle) {
+                        // AMS group (nozzle group_id == ams_nozzle_idx) goes left, fixed nozzles right.
+                        int gid = -1;
+                        if (nozzle_group_result) {
+                            auto nz = nozzle_group_result->get_first_nozzle_for_filament(static_cast<int>(extruder_id));
+                            if (nz) gid = nz->group_id;
+                        }
+                        to_left = (m_ams_nozzle_idx >= 0 && gid == m_ams_nozzle_idx);
+                    } else {
+                        to_left = (filament_maps[extruder_id] == 1);
+                    }
+                    if (to_left) {
                         m_left_extruder_filament.push_back({ type_opt[extruder_id], color_opt[extruder_id], extruder_id, (bool)(support_filament_opt[extruder_id]) });
                     }
                     else {
@@ -715,6 +815,15 @@ namespace Slic3r
             {
                 if (type == EViewType::Count)
                     type = EViewType::FeatureType;
+                if (type == EViewType::Objects && !wxGetApp().app_config->get_bool("show_objects_in_preview")) {
+                    type = EViewType::ColorPrint;
+                    const auto item = std::find(view_type_items.begin(), view_type_items.end(), type);
+                    if (item != view_type_items.end()) {
+                        m_view_type_sel = std::distance(view_type_items.begin(), item);
+                        m_last_non_helio_option_item = m_view_type_sel;
+                        record_gcodeviewer_option_item();
+                    }
+                }
                 do_set_view_type(type);
                 if (reset_feature_type_visible && type == EViewType::ColorPrint) {
                     reset_visible(EViewType::FeatureType);
@@ -1172,7 +1281,7 @@ namespace Slic3r
             {
                 if (m_view_type == EViewType::ThermalIndexMin ||
                     m_view_type == EViewType::ThermalIndexMax ||
-                    m_view_type == EViewType::ThermalIndexMean)
+                    m_view_type == EViewType::ThermalIndexMean || is_warpage_view(m_view_type))
                     return true;
                 return false;
             }
@@ -1195,8 +1304,9 @@ namespace Slic3r
             void BaseRenderer::reset()
             {
                 //BBS: should also reset the result id
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": current result id %1% ") % m_last_result_id;
+                BOOST_LOG_TRIVIAL(info) << boost::format("current result id %1% ") % m_last_result_id;
                 m_last_result_id = -1;
+                m_object_preview = ObjectPreviewState{};
                 m_conflict_result.reset();
                 m_gcode_check_result.reset();
                 filament_printable_reuslt.reset();
@@ -1217,6 +1327,9 @@ namespace Slic3r
                 m_left_extruder_filament.clear();
                 m_right_extruder_filament.clear();
                 m_nozzle_nums = 0;
+                m_single_ext_multi_nozzle = false;
+                m_ams_nozzle_idx = -1;
+                m_total_nozzle_count = 1;
                 m_extruder_ids.clear();
                 m_filament_diameters.clear();
                 m_filament_densities.clear();
@@ -1243,14 +1356,14 @@ namespace Slic3r
                 //BBS: add safe check
                 if (gcode_result.moves.size() == 0) {
                     //result cleaned before slicing ,should return here
-                    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(": gcode result reset before, return directly!");
+                    BOOST_LOG_TRIVIAL(warning) << boost::format("gcode result reset before, return directly!");
                     gcode_result.unlock();
                     return;
                 }
                 const auto t_move_count = gcode_result.moves.size();
                 //BBS: add mutex for protection of gcode result
                 if (t_move_count == 0) {
-                    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(": gcode result m_moves_count is 0, return directly!");
+                    BOOST_LOG_TRIVIAL(warning) << boost::format("gcode result m_moves_count is 0, return directly!");
                     gcode_result.unlock();
                     return;
                 }
@@ -1320,6 +1433,7 @@ namespace Slic3r
                 m_statistics.refresh_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time).count();
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
                 //BBS: add mutex for protection of gcode result
+                m_p_extrusions->ranges.load_warpage(gcode_result);
                 gcode_result.unlock();
                 update_option_item_when_load_gcode();
             }
@@ -1381,7 +1495,7 @@ namespace Slic3r
                 }
             }
 
-            void BaseRenderer::render_shells()
+            void BaseRenderer::render_shells(bool skip_wipe_tower)
             {
                 //BBS: add shell previewing logic
                 if ((!m_shells.previewing && !m_shells.visible) || m_shells.volumes.empty())
@@ -1402,7 +1516,8 @@ namespace Slic3r
                 //BBS: reopen cul faces
                 auto& camera = wxGetApp().plater()->get_camera();
                 std::vector<std::array<float, 4>> colors = wxGetApp().plater()->get_extruders_colors();
-                m_shells.volumes.render(GUI::ERenderPipelineStage::Normal, GLVolumeCollection::ERenderType::Transparent, false, camera, colors, wxGetApp().plater()->model());
+                m_shells.volumes.render(GUI::ERenderPipelineStage::Normal, GLVolumeCollection::ERenderType::Transparent, false, camera, colors, wxGetApp().plater()->model(),
+                    [skip_wipe_tower](const GLVolume& volume) { return !skip_wipe_tower || !volume.is_wipe_tower; });
                 wxGetApp().unbind_shader();
                 glsafe(::glDepthMask(GL_TRUE));
             }
@@ -1476,8 +1591,14 @@ namespace Slic3r
                     bool visible = true,
                     std::function<void()> callback = nullptr)
                     {
-                        // render icon
-                        ImVec2 pos = ImVec2(ImGui::GetCursorScreenPos().x + window_padding * 3, ImGui::GetCursorScreenPos().y);
+                        // Tallest cell of the row (e.g. "x m\ny g" spans two lines); single-line cells are centered against it.
+                        float row_max_h = 0.f;
+                        for (const auto& col : columns_offsets)
+                            row_max_h = std::max(row_max_h, ImGui::CalcTextSize(col.first.c_str()).y);
+                        const float cell0_h = ImGui::CalcTextSize(columns_offsets[0].first.c_str()).y;
+                        const float offset_y = std::max(0.0f, (row_max_h - cell0_h) * 0.5f);
+                        // render icon, shifted with the first cell so it stays level with the filament index
+                        ImVec2 pos = ImVec2(ImGui::GetCursorScreenPos().x + window_padding * 3, ImGui::GetCursorScreenPos().y + offset_y);
                         switch (type) {
                         default:
                         case EItemType::Rect: {
@@ -1537,11 +1658,19 @@ namespace Slic3r
                                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(172 / 255.0f, 172 / 255.0f, 172 / 255.0f, 1.00f));
                             float dummy_size = type == EItemType::None ? window_padding * 3 : ImGui::GetStyle().ItemSpacing.x + icon_size;
                             ImGui::SameLine(dummy_size);
+                            const float row_top_y = ImGui::GetCursorPosY();
+                            ImGui::SetCursorPosY(row_top_y + offset_y);
                             imgui.text(columns_offsets[0].first);
                             for (auto i = 1; i < columns_offsets.size(); i++) {
                                 ImGui::SameLine(columns_offsets[i].second);
+                                const float cell_h = ImGui::CalcTextSize(columns_offsets[i].first.c_str()).y;
+                                ImGui::SetCursorPosY(row_top_y + std::max(0.0f, (row_max_h - cell_h) * 0.5f));
                                 imgui.text(columns_offsets[i].first);
                             }
+                            // 窗口 AlwaysAutoResize 且 WindowPadding 为 0，末列文本后需显式占位，
+                            // 否则右边界紧贴最后一列（如喷嘴列）；边距与左侧图标缩进（window_padding*3）对齐
+                            ImGui::SameLine(0.0f, 0.0f);
+                            ImGui::Dummy({ window_padding * 3.0f, 0.0f });
                             if (callback && !checkbox && !visible)
                                 ImGui::PopStyleColor(1);
                         }
@@ -1707,6 +1836,29 @@ namespace Slic3r
                     return result;
 
                     };
+                // 单挤出机多喷嘴：把耗材所分到的喷嘴描述为 "<口径> <流量缩写>"（如"0.4 Std"）。缩写：标准 Std、 高流量 HF、TPU TPU285。
+                auto get_n1x_nozzle_label = [this](const std::shared_ptr<MultiNozzleUtils::NozzleGroupResultBase> &group_result, int filament_id) -> std::string {
+                    if (!group_result)
+                        return "";
+                    auto nz = group_result->get_first_nozzle_for_filament(filament_id);
+                    if (!nz)
+                        return "";
+                    auto vol_abbr = [](NozzleVolumeType vt) -> std::string {
+                        switch (vt) {
+                        case nvtHighFlow:
+                        case nvtE3DHighFlow:  return "HF";
+                        case nvtTPUHighFlow:
+                        case nvtTPU285:       return "TPU285";
+                        case nvtStandard:
+                        default:              return "Std";
+                        }
+                    };
+                    std::string label = nz->diameter + " " + vol_abbr(nz->volume_type);
+                    // 喷嘴编号只是内部喷嘴数组下标，机身无对应标识，用户无法据此操作，暂时屏蔽
+                    // if (m_ams_nozzle_idx >= 0 && nz->group_id == m_ams_nozzle_idx)
+                    //     label += " (" + (boost::format(_u8L("No.%1%")) % (nz->group_id + 1)).str() + ")";
+                    return label;
+                    };
                 //BBS Slicing Result title
                 ImGui::Dummy({ window_padding, window_padding });
                 ImGui::Dummy({ window_padding, window_padding });
@@ -1793,11 +1945,26 @@ namespace Slic3r
                 const char* view_type_value = view_type_image_names[m_view_type_sel].option_name.c_str();
                 if (ImGui::BBLBeginCombo("", view_type_value, flags)) {
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
-                    for (int i = 0; i < view_type_image_names.size(); i++) {
+                    // Keep stored indices of existing modes stable. Only the menu's
+                    // display order places the new Objects item after Filament.
+                    std::vector<int> display_order;
+                    const auto objects_item = std::find(view_type_items.begin(), view_type_items.end(), EViewType::Objects);
+                    const int objects_index = std::distance(view_type_items.begin(), objects_item);
+                    for (int i = 0; i < view_type_image_names.size(); ++i) {
+                        if (view_type_items[i] == EViewType::Objects)
+                            continue;
+                        display_order.push_back(i);
+                        if (view_type_items[i] == EViewType::ColorPrint && objects_index < view_type_image_names.size())
+                            display_order.push_back(objects_index);
+                    }
+                    for (int i : display_order) {
                         const bool is_selected = (m_view_type_sel == i);
                         if (hide_additional_fan_speed && view_type_items[i] == EViewType::AdditionalFanSpeed) {
                             continue;
                         }
+                        if (view_type_items[i] == EViewType::Objects &&
+                            !wxGetApp().app_config->get_bool("show_objects_in_preview"))
+                            continue;
                         if (ImGui::BBLSelectable_LeftImage(view_type_image_names[i].option_name.c_str(), is_selected, view_type_image_names[i].texture_id)) {
                             m_fold = false;
                             apply_view_type_selection(i, view_type_items[i]);
@@ -1810,10 +1977,27 @@ namespace Slic3r
                     ImGui::EndCombo();
                 }
                 pop_combo_style();
+                if (m_view_type == EViewType::Objects) {
+                    ImGui::Dummy({window_padding, window_padding});
+                    for (size_t i = 0; i < m_object_preview.objects.size(); ++i) {
+                        const auto& object = m_object_preview.objects[i];
+                        ImGui::Dummy({window_padding, 0.0f});
+                        ImGui::SameLine();
+                        const std::string id = "##object_preview_color_" + std::to_string(i);
+                        ImGui::ColorButton(id.c_str(), ImVec4(object.color[0], object.color[1], object.color[2], object.color[3]),
+                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                            ImVec2(ImGui::GetTextLineHeight() * 0.7f, ImGui::GetTextLineHeight() * 0.7f));
+                        ImGui::SameLine();
+                        imgui.text(object.name);
+                    }
+                }
                 ImGui::SameLine();
                 ImGui::Dummy({ window_padding, window_padding });
                 // data used to properly align items in columns when showing time
                 std::vector<float> offsets;
+                // 耗材丝（ColorPrint）图例增加一列 "Nozzle"，内容来自分组结果；
+                // 多挤出机机型保持原布局。
+                const bool show_nozzle_col = m_single_ext_multi_nozzle && group_result;
                 std::vector<std::string> labels;
                 std::vector<std::string> times;
                 std::string travel_time;
@@ -2000,6 +2184,12 @@ namespace Slic3r
                     }
                     if (is_show_left_right_result) {
                         title_columns.push_back({ _u8L("Nozzles"), {""} });
+                    } else if (show_nozzle_col) {
+                        //来自分组结果的每根耗材喷嘴分配。提供样本使该列有足够宽度。
+                        std::vector<std::string> nozzle_samples;
+                        for (unsigned char extruder_id : m_extruder_ids)
+                            nozzle_samples.push_back(get_n1x_nozzle_label(group_result, static_cast<int>(extruder_id)));
+                        title_columns.push_back({ _u8L("Nozzle"), nozzle_samples });
                     }
                     auto offsets_ = calculate_offsets(title_columns, icon_size);
                     std::vector<std::pair<std::string, float>> title_offsets;
@@ -2011,6 +2201,16 @@ namespace Slic3r
                     break;
                 }
                 // helio
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                    imgui.title(get_view_type_string(m_view_type)); break;
                 case EViewType::ThermalIndexMin: { imgui.title(_u8L("Thermal Index (min)")); break; }
                 case EViewType::ThermalIndexMax: { imgui.title(_u8L("Thermal Index (max)")); break; }
                 case EViewType::ThermalIndexMean: { imgui.title(_u8L("Thermal Index (mean)")); break; }
@@ -2075,6 +2275,7 @@ namespace Slic3r
                             columns_offsets.push_back({ travel_percent, offsets[2] });
                             append_item(EItemType::Rect, Travel_Colors[0], columns_offsets, true, visible, [this, item, visible]() {
                                 set_move_type_visible(item, !visible);
+                                refresh(*m_gcode_result, wxGetApp().plater()->get_extruder_colors_from_plater_config(m_gcode_result));
                                 on_visibility_changed();
                                 });
                         }
@@ -2113,7 +2314,10 @@ namespace Slic3r
                     size_t i = 0;
                     for (unsigned char extruder_id : m_extruder_ids) {
                         ::sprintf(buf, imperial_units ? "%.2f in    %.2f g" : "%.2f m    %.2f g", model_used_filaments_m[i], model_used_filaments_g[i]);
-                        append_item(EItemType::Rect, m_tools.m_tool_colors[extruder_id], { { _u8L("Extruder") + " " + std::to_string(extruder_id + 1), offsets[0]}, {buf, offsets[1]} });
+                        std::vector<std::pair<std::string, float>> columns_offsets;
+                        columns_offsets.push_back({ _u8L("Extruder") + " " + std::to_string(extruder_id + 1), offsets[0] });
+                        columns_offsets.push_back({ buf, offsets[1] });
+                        append_item(EItemType::Rect, m_tools.m_tool_colors[extruder_id], columns_offsets);
                         i++;
                     }
                     break;
@@ -2196,6 +2400,8 @@ namespace Slic3r
                                 std::string nozzle_str   = get_nozzle_label(group_result, static_cast<int>(extruder_idx));
                                 ::sprintf(buf, "%s", nozzle_str.c_str());
                                 columns_offsets.push_back({buf, color_print_offsets[_u8L("Nozzles")]});
+                            } else if (show_nozzle_col) {
+                                columns_offsets.push_back({ get_n1x_nozzle_label(group_result, static_cast<int>(extruder_idx)), color_print_offsets[_u8L("Nozzle")] });
                             }
                             append_item(EItemType::Rect, m_tools.m_tool_colors[extruder_idx], columns_offsets, false, filament_visible, [this, extruder_idx]() {
                                 m_tools.m_tool_visibles[extruder_idx] = !m_tools.m_tool_visibles[extruder_idx];
@@ -2260,6 +2466,16 @@ namespace Slic3r
                     break;
                 }
                 // helio
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                    append_range(m_p_extrusions->ranges.warpage[warpage_index(m_view_type)], 4); break;
                 case EViewType::ThermalIndexMin:
                 case EViewType::ThermalIndexMax:
                 case EViewType::ThermalIndexMean: {
@@ -2729,7 +2945,9 @@ namespace Slic3r
                         append_option_item(item, offsets);
                 }
                 ImGui::Dummy({ window_padding, window_padding });
-                if (m_nozzle_nums > 1)
+                // 单挤出机多喷嘴只在外接 AMS 与固定喷嘴间划分耗材，分组图例仅在接入
+                // AMS（m_ams_nozzle_idx >= 0）时有意义；无外接 AMS 时无可分组，隐藏。
+                if (m_nozzle_nums > 1 || (m_single_ext_multi_nozzle && m_ams_nozzle_idx >= 0))
                     render_legend_color_arr_recommen(window_padding, is_show_left_right_result);
                 legend_height = ImGui::GetCurrentWindow()->Size.y;
                 imgui.end();
@@ -2909,8 +3127,12 @@ namespace Slic3r
                         std::string br_pt = wxGetApp().preset_bundle->printers.get_edited_preset().get_printer_type(wxGetApp().preset_bundle);
                         ImGui::BeginChild("#LeftAMS", ImVec2(half_width, ams_item_height), false, ImGuiWindowFlags_AlwaysUseWindowPadding);
                         {
-                            std::string br_dep_nz = DevPrinterConfigUtil::get_toolhead_display_name(br_pt, DEPUTY_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::SentenceCase);
-                            imgui.text(_u8L(br_dep_nz.c_str()));
+                            std::string br_dep_nz;
+                            if (m_single_ext_multi_nozzle)
+                                br_dep_nz = m_ams_nozzle_idx >= 0 ? std::string(get_ams_nozzle_label(m_ams_nozzle_idx).ToUTF8().data()) : _u8L("AMS nozzle");
+                            else
+                                br_dep_nz = _u8L(DevPrinterConfigUtil::get_toolhead_display_name(br_pt, DEPUTY_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::SentenceCase).c_str());
+                            imgui.text(br_dep_nz);
                             ImGui::Dummy({window_padding, window_padding});
                             int index = 1;
                             for (const auto &extruder_filament : m_left_extruder_filament) {
@@ -2926,8 +3148,12 @@ namespace Slic3r
                         child_begin_draw_list->AddRectFilled(cursor_pos, ImVec2(cursor_pos.x + half_width, cursor_pos.y + line_height), IM_COL32(0, 0, 0, 20));
                         ImGui::BeginChild("#RightAMS", ImVec2(half_width, ams_item_height), false, ImGuiWindowFlags_AlwaysUseWindowPadding);
                         {
-                            std::string br_main_nz = DevPrinterConfigUtil::get_toolhead_display_name(br_pt, MAIN_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::SentenceCase);
-                            imgui.text(_u8L(br_main_nz.c_str()));
+                            std::string br_main_nz;
+                            if (m_single_ext_multi_nozzle)
+                                br_main_nz = std::string(get_fixed_nozzle_label(m_total_nozzle_count, m_ams_nozzle_idx).ToUTF8().data());
+                            else
+                                br_main_nz = _u8L(DevPrinterConfigUtil::get_toolhead_display_name(br_pt, MAIN_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::SentenceCase).c_str());
+                            imgui.text(br_main_nz);
                             ImGui::Dummy({window_padding, window_padding});
                             int index = 1;
                             for (const auto &extruder_filament : m_right_extruder_filament) {
@@ -3131,6 +3357,19 @@ namespace Slic3r
                     _max = m_p_extrusions->ranges.temperature.max;
                     return true;
                 }
+                case EViewType::WarpageDisplacement:
+                case EViewType::WarpageDispX:
+                case EViewType::WarpageDispY:
+                case EViewType::WarpageDispZ:
+                case EViewType::WarpageRisk:
+                case EViewType::WarpageTIGradient:
+                case EViewType::WarpageThermalStrain:
+                case EViewType::WarpageHullShrinkage:
+                case EViewType::WarpageLayerShrinkage:
+                {
+                    const auto& range = m_p_extrusions->ranges.warpage[warpage_index(EViewType(index))];
+                    _min = range.min; _max = range.max; return true;
+                }
                 case EViewType::ThermalIndexMin: {
                     _min = m_p_extrusions->ranges.thermal_index_min.min;
                     _max = m_p_extrusions->ranges.thermal_index_min.max;
@@ -3153,6 +3392,7 @@ namespace Slic3r
                 }
                 case EViewType::Tool: break;
                 case EViewType::ColorPrint: break;
+                case EViewType::Objects: break;
                 case EViewType::FilamentId: break;
                 case EViewType::LayerTime: {
                     _min = m_p_extrusions->ranges.layer_duration.min;
@@ -3218,6 +3458,7 @@ namespace Slic3r
                 view_type_items.push_back(EViewType::FanSpeed);
                 view_type_items.push_back(EViewType::AdditionalFanSpeed);
                 view_type_items.push_back(EViewType::Temperature);
+                view_type_items.push_back(EViewType::Objects);
                 for (int i = 0; i < view_type_items.size(); i++) {
                     if (view_type_items[i] == EViewType::FilamentId) {
                         continue;
@@ -3237,34 +3478,39 @@ namespace Slic3r
                 options_items.push_back(EMoveType::Seam);
             }
 
-            void BaseRenderer::update_thermal_options(bool add) {
-
+            void BaseRenderer::update_thermal_options(bool add)
+            {
+                for (int i = int(view_type_items.size()) - 1; i >= 0; --i) {
+                    const auto type = view_type_items[i];
+                    if (type >= EViewType::ThermalIndexMin && type < EViewType::Count) {
+                        view_type_items.erase(view_type_items.begin() + i);
+                        view_type_image_names.erase(view_type_image_names.begin() + i);
+                    }
+                }
+                auto append = [this](EViewType type) {
+                    // FilamentId is an internal option and stays last, without an image entry.
+                    auto it = std::find(view_type_items.begin(), view_type_items.end(), EViewType::FilamentId);
+                    const auto index = std::distance(view_type_items.begin(), it);
+                    view_type_items.insert(it, type);
+                    view_type_image_names.insert(view_type_image_names.begin() + index,
+                        {get_view_type_string(type), m_helio_icon_texture, m_helio_icon_dark_texture});
+                };
                 if (add) {
-                    for (int i = view_type_items.size() - 1; i >= 0; i--) {
-                        if (view_type_items[i] == EViewType::ThermalIndexMean) {
-                            return;
-                        }
-                    }
-                    view_type_items.pop_back();//delete EViewType::FilamentId
-                    auto index = view_type_items.size();
-
-                    view_type_items.push_back(EViewType::ThermalIndexMin);
-                    view_type_items.push_back(EViewType::ThermalIndexMax);
-                    view_type_items.push_back(EViewType::ThermalIndexMean);
-                    for (int i = index; i < view_type_items.size(); i++) {
-                        ImageName temp = { get_view_type_string(view_type_items[i]), m_helio_icon_texture, m_helio_icon_dark_texture };
-                        view_type_image_names.push_back(temp);
-                    }
-                    view_type_items.push_back(EViewType::FilamentId);
+                    append(EViewType::ThermalIndexMin);
+                    append(EViewType::ThermalIndexMax);
+                    append(EViewType::ThermalIndexMean);
                 }
-                else {
-                    for (int i = view_type_items.size() - 1; i >= 0; i--) {
-                        if (view_type_items[i] == EViewType::ThermalIndexMean || view_type_items[i] == EViewType::ThermalIndexMin || view_type_items[i] == EViewType::ThermalIndexMax) {
-                            view_type_items.erase(view_type_items.begin() + i);
-                            view_type_image_names.erase(view_type_image_names.begin() + i);
-                        }
-                    }
+                if (m_gcode_result && m_p_extrusions) {
+                    for (const auto type : { EViewType::WarpageRisk, EViewType::WarpageHullShrinkage })
+                        if (m_p_extrusions->ranges.warpage_available[warpage_index(type)])
+                            append(type);
                 }
+                if (is_warpage_view(m_view_type) &&
+                    std::find(view_type_items.begin(), view_type_items.end(), m_view_type) == view_type_items.end())
+                    update_default_view_type();
+                const auto selected = std::find(view_type_items.begin(), view_type_items.end(), m_view_type);
+                if (selected != view_type_items.end())
+                    m_view_type_sel = std::distance(view_type_items.begin(), selected);
             }
 
             GCodeWindow::GCodeWindow()
@@ -3304,7 +3550,7 @@ namespace Slic3r
                 try
                 {
                     m_file.open(boost::filesystem::path(m_filename));
-                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": mapping file " << PathSanitizer::sanitize(m_filename);
+                    BOOST_LOG_TRIVIAL(info) << "mapping file " << PathSanitizer::sanitize(m_filename);
                 }
                 catch (...)
                 {
@@ -3615,7 +3861,7 @@ namespace Slic3r
                 //BBS: add log to trace the gcode file issue
                 if (m_file.is_open()) {
                     m_file.close();
-                    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": finished mapping file " << PathSanitizer::sanitize(m_filename);
+                    BOOST_LOG_TRIVIAL(info) << "finished mapping file " << PathSanitizer::sanitize(m_filename);
                 }
             }
 
@@ -3786,6 +4032,22 @@ namespace Slic3r
                         break;
                     }
                     // helio
+                    case EViewType::WarpageDisplacement:
+                    case EViewType::WarpageDispX:
+                    case EViewType::WarpageDispY:
+                    case EViewType::WarpageDispZ:
+                    case EViewType::WarpageRisk:
+                    case EViewType::WarpageTIGradient:
+                    case EViewType::WarpageThermalStrain:
+                    case EViewType::WarpageHullShrinkage:
+                    case EViewType::WarpageLayerShrinkage:
+                    {
+                        const float value = m_curr_move.warpage_values()[warpage_index(view_type)];
+                        if (std::isfinite(value)) sprintf(buf, "%.4f", value);
+                        else sprintf(buf, "%s", _u8L("N/A").c_str());
+                        imgui.text(buf);
+                        break;
+                    }
                     case EViewType::ThermalIndexMin:
                     case EViewType::ThermalIndexMax:
                     case EViewType::ThermalIndexMean:
@@ -3866,8 +4128,42 @@ namespace Slic3r
                 gcode_window.render(legend_height, (float)canvas_height, (float)canvas_width - (float)right_margin, static_cast<uint64_t>(gcode_ids[current.last]), cb, b_show_horizon_slider, b_helio_option);
             }
 
+            void Ranges::load_warpage(const GCodeProcessorResult& result)
+            {
+                const std::vector<ColorRGBA> sequential = {
+                    {30/255.f,180/255.f,60/255.f,1.f}, {140/255.f,190/255.f,40/255.f,1.f},
+                    {220/255.f,180/255.f,30/255.f,1.f}, {230/255.f,100/255.f,20/255.f,1.f},
+                    {200/255.f,20/255.f,20/255.f,1.f}};
+                const std::vector<ColorRGBA> diverging = {
+                    {0.f,60/255.f,200/255.f,1.f}, {30/255.f,180/255.f,60/255.f,1.f},
+                    {200/255.f,20/255.f,20/255.f,1.f}};
+                warpage_available.fill(false);
+                for (size_t i = 0; i < warpage.size(); ++i)
+                    warpage[i] = Range(i == 1 || i == 2 || i == 5 ? diverging : sequential);
+                warpage[4] = Range(0.f, 1.f, sequential);
+                warpage[7] = Range(0.f, 1.f, sequential);
+                warpage[3].update_from(0.f);
+                if (std::isfinite(result.warpage_wdm_p95) && result.warpage_wdm_p95 > 0.f) {
+                    const float p95 = result.warpage_wdm_p95;
+                    warpage[0] = Range(0.f, p95, sequential);
+                    warpage[1] = Range(-p95, p95, diverging);
+                    warpage[2] = Range(-p95, p95, diverging);
+                    warpage[3] = Range(0.f, p95, sequential);
+                }
+                for (const auto& move : result.moves) {
+                    if (move.type != EMoveType::Extrude) continue;
+                    const auto values = move.warpage_values();
+                    for (size_t i = 0; i < values.size(); ++i) {
+                        if (!std::isfinite(values[i])) continue;
+                        warpage_available[i] = true;
+                        if (i != 3 || values[i] >= 0.f) warpage[i].update_from(values[i]);
+                    }
+                }
+            }
+
             ColorRGBA Range::get_color_at(float value, EType type) const
             {
+                if (!std::isfinite(value)) return ColorRGBA::GRAY();
                 float       global_t = 0.0f;
                 const float step = step_size(type);
                 float       _min = min;

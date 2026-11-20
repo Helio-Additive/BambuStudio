@@ -5,6 +5,9 @@
     "from": "system",
     "setting_id": "GFSG01_44",
     "instantiation": "true",
+    "filament_change_length": [
+        "4"
+    ],
     "filament_cooling_before_tower": [
         "10",
         "10",
@@ -27,6 +30,9 @@
         "6",
         "6"
     ],
+    "filament_prime_volume": [
+        "30"
+    ],
     "filament_ramming_travel_time": [
         "0",
         "0",
@@ -35,7 +41,7 @@
     "filament_retraction_length": [
         "0.4",
         "0.4",
-        "0.4"
+        "0.8"
     ],
     "filament_wipe": [
         "1",

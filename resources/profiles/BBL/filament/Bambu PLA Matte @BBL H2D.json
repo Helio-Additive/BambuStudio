@@ -48,12 +48,7 @@
     "filament_max_volumetric_speed": [
         "25",
         "40",
-        "31"
-    ],
-    "filament_preheat_temperature_delta": [
-        "20",
-        "20",
-        "20"
+        "40"
     ],
     "filament_prime_volume": [
         "30"

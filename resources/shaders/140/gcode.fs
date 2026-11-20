@@ -55,6 +55,14 @@ vec4 extrusion_color(vec3 type_rangeData_deltaExtruder)
                 return final_color;
             }
         }
+        else if (view_type > 15.5 && view_type < 16.5) // Objects
+        {
+            if (path_data < u_pathDataRange.x - 0.5 || path_data > u_pathDataRange.y + 0.5)
+            {
+                final_color = vec4(0.5, 0.5, 0.5, 1.0);
+                return final_color;
+            }
+        }
         else if (view_type > 9.5 && view_type < 10.5) // FilamentId
         {
             float path_data2 = type_rangeData_deltaExtruder.z;
@@ -63,8 +71,12 @@ vec4 extrusion_color(vec3 type_rangeData_deltaExtruder)
             final_color = vec4(id, role, id, 1.0);
             return final_color;
         }
+        else if (view_type > 15.5 && (isnan(path_data) || isinf(path_data)))
+        {
+            return vec4(0.5, 0.5, 0.5, 1.0);
+        }
         // helio
-        else if (view_type > 11.5 && view_type < 14.5)
+        else if (view_type > 12.5 && view_type < 15.5)
         {
             if (path_data < u_pathDataRange.x - 0.01)
             {
