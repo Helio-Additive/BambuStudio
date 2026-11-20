@@ -742,19 +742,25 @@ void HelioHistoryDialog::on_download_gcode(const std::string& gcode_url, const s
         // Save the downloaded content to file
         try {
             wxFile file(wxString::FromUTF8(save_path), wxFile::write);
-            if (file.IsOpened()) {
-                // wxFile::Write returns the number of bytes actually written, and
-                // wxFile::Close reports a failed flush. Both have to be checked:
-                // discarding either reports a truncated G-code file as a successful
-                // download, and a truncated G-code loads and previews without
-                // complaint, then stops partway through the print with no heating or
-                // motion shutdown at the end. A short write is a return value, not an
-                // exception, so the surrounding try/catch does not cover it.
-                const size_t expected  = downloaded_content.size();
-                const size_t written   = file.Write(downloaded_content.data(), expected);
-                const bool   closed_ok = file.Close();
+            if (!file.IsOpened()) {
+                wxMessageBox(
+                    wxString::Format(_L("Failed to open file for writing:\n%s"), wxString(save_path)),
+                    _L("Download Error"),
+                    wxOK | wxICON_ERROR);
+                BOOST_LOG_TRIVIAL(error) << "Failed to open file for writing: " << save_path;
+            } else {
+                // wxFile::Write returns the number of bytes it actually wrote, Flush() syncs the data
+                // to storage and reports a failed writeback, and Close() reports a failed close.
+                // Close() alone does not sync, so a delayed writeback error can surface only after a
+                // successful Close(); Flush() is what catches it. None of them throws, so the
+                // enclosing try/catch does not cover them: without these checks a disk-full or
+                // device error produced a truncated G-code file under a "downloaded successfully!"
+                // dialog. Close() runs even when Flush() fails, so the descriptor is always released.
+                const bool written = file.Write(downloaded_content.data(), downloaded_content.size()) == downloaded_content.size();
+                const bool flushed = file.Flush();
+                const bool closed  = file.Close();
 
-                if (written == expected && closed_ok) {
+                if (written && flushed && closed) {
                     wxMessageBox(
                         wxString::Format(_L("GCode file downloaded successfully!\n\nSaved to: %s"), wxString(save_path)),
                         _L("Download Complete"),
@@ -762,40 +768,57 @@ void HelioHistoryDialog::on_download_gcode(const std::string& gcode_url, const s
 
                     BOOST_LOG_TRIVIAL(info) << "GCode file saved successfully: " << save_path;
                 } else {
-                    // Remove the incomplete file rather than leave it on disk. The
-                    // destination was opened with wxFile::write, so whatever it held
-                    // before was truncated when it opened and is already unrecoverable;
-                    // leaving a partial G-code beside an error dialog only invites
-                    // someone to print it anyway.
-                    const bool removed = wxRemoveFile(wxString::FromUTF8(save_path));
+                    // A truncated G-code file is a dangerous thing to leave on disk: it loads and
+                    // previews without complaint, then stops partway through the print with no
+                    // heating or motion shutdown. So the incomplete remains have to go.
+                    //
+                    // Empty the file instead of removing it. Re-opening with wxFile::write
+                    // truncates, and that single operation avoids every hazard that removing the
+                    // path carries:
+                    //   - it follows a symbolic link and empties the *target*, leaving the link in
+                    //     place; unlinking would delete a link this handler never wrote and leave
+                    //     the incomplete G-code sitting at the target,
+                    //   - it leaves no printable remains under an additional hard link, which
+                    //     unlinking one of several names would,
+                    //   - it reuses the exact wxString that opened the file, so no second path
+                    //     conversion can disagree about which file is meant (a narrow
+                    //     boost::filesystem::path built from save_path converts through the active
+                    //     Windows code page, while the open above used FromUTF8),
+                    //   - and it deletes nothing, so a file another writer has put at this path
+                    //     keeps its directory entry and any other links instead of being unlinked.
+                    //
+                    // That last point is a reduction, not a fix, and this comment should not claim
+                    // more than it does: truncation still loses the contents of whatever is at the
+                    // path. The write held a descriptor while this resolves the pathname afresh, so
+                    // the race spans the open above through to here: wider than the Close()-to-here
+                    // gap, because the Write() of the whole buffer sits inside it and can block on a
+                    // full or slow disk, but it does not reach back over the HTTP download, which
+                    // perform_sync() had already finished into memory before the open. Closing it
+                    // needs a temp file plus rename, which redesigns this handler; see
+                    // Helio-Additive/OrcaSlicer#148.
+                    //
+                    // The cost is a 0-byte file left where the user asked for one. That is not a
+                    // hazard the way a partial file is: it cannot be printed by mistake, and the
+                    // dialog below says what happened.
+                    wxFile     clear_file(wxString::FromUTF8(save_path), wxFile::write);
+                    const bool cleaned = clear_file.IsOpened() && clear_file.Close();
 
-                    const wxString detail = (written == expected)
-                        ? _L("The file could not be flushed to disk.")
-                        : wxString::Format(_L("Only %s of %s bytes could be written."),
-                              wxString(std::to_string(written)),
-                              wxString(std::to_string(expected)));
-                    const wxString disposition = removed
-                        ? _L("The incomplete file has been deleted.")
-                        : _L("The incomplete file could not be deleted - do not print it.");
+                    const wxString cleanup = cleaned ?
+                        _L("The incomplete file has been emptied, so it cannot be printed by mistake.") :
+                        _L("The incomplete file could NOT be emptied - do not print it.");
 
                     wxMessageBox(
-                        wxString::Format(_L("Failed to save the complete GCode file:\n%s\n\n%s %s"),
-                            wxString(save_path), detail, disposition),
+                        wxString::Format(_L("Failed to save the GCode file: only part of it could be written.\n\n%s\n\n"
+                                            "Check the available disk space and try again.\n\n%s"),
+                                         cleanup,
+                                         wxString(save_path)),
                         _L("Download Error"),
                         wxOK | wxICON_ERROR);
 
-                    BOOST_LOG_TRIVIAL(error)
-                        << "GCode file not saved completely: wrote " << written << " of " << expected
-                        << " bytes to " << save_path << ", close "
-                        << (closed_ok ? "succeeded" : "failed") << ", partial file "
-                        << (removed ? "deleted" : "NOT deleted");
+                    BOOST_LOG_TRIVIAL(error) << "Incomplete write saving GCode file to " << save_path
+                                             << " (write ok: " << written << ", flush ok: " << flushed << ", close ok: " << closed
+                                             << ", emptied: " << cleaned << ")";
                 }
-            } else {
-                wxMessageBox(
-                    wxString::Format(_L("Failed to open file for writing:\n%s"), wxString(save_path)),
-                    _L("Download Error"),
-                    wxOK | wxICON_ERROR);
-                BOOST_LOG_TRIVIAL(error) << "Failed to open file for writing: " << save_path;
             }
         } catch (const std::exception& e) {
             wxMessageBox(
