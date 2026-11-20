@@ -75,24 +75,23 @@ jobs:
         run: Compress-Archive -Path "${{ github.workspace }}\deps\build\BambuStudio_dep\*" -DestinationPath "${{ github.workspace }}\deps\build\BambuStudio_dep_win64_${{ env.date }}_vs2022.zip"
         shell: pwsh
 
-      # Windows on ARM64/ARM64EC. The windows-11-arm runner ships Visual
-      # Studio 2022 (v17), not 2026, so the generator differs from the x64 job
-      # above. All per-dep arch handling lives in deps/*.cmake and is selected
-      # automatically from the -A platform (arm64ec = native ARM64 code with
-      # the x64-compatible ABI, which is what lets the app load the x64-only
-      # Bambu network plugin in-process).
+      # Select an installed VS 2022/2026 toolchain with ARM64 C++ tools.
+      # ARM64EC retains compatibility with the x64-only Bambu network plugin.
       - name: Build on Windows ARM64/ARM64EC
         if: inputs.os == 'windows-11-arm'
         working-directory: ${{ github.workspace }}
         run: |
+            $toolchain = & "${{ github.workspace }}/.github/scripts/select-arm64-toolchain.ps1"
             choco install strawberryperl
             choco install pkgconfiglite
             mkdir ${{ github.workspace }}\deps\build
             mkdir ${{ github.workspace }}\deps\build\BambuStudio_dep
             cd "${{ github.workspace }}\deps\build"
             $platform = "${{ inputs.arch }}" -eq "arm64ec" ? "ARM64EC" : "ARM64"
-            cmake ../ -G "Visual Studio 17 2022" -A $platform -DDESTDIR="./BambuStudio_dep" -DCMAKE_BUILD_TYPE=Release -DDEP_DEBUG=OFF
-            msbuild /m ALL_BUILD.vcxproj
+            cmake ../ -G $toolchain.Generator "-DCMAKE_GENERATOR_INSTANCE=$($toolchain.InstallationPath)" -A $platform -DDESTDIR="./BambuStudio_dep" -DCMAKE_BUILD_TYPE=Release -DDEP_DEBUG=OFF
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            cmake --build . --config Release --parallel
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: pwsh
 
       - name: pack deps on Windows ARM64/ARM64EC

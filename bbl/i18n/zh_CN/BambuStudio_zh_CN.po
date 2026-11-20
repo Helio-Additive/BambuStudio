@@ -30338,3 +30338,47 @@ msgstr ""
 
 #~ msgid "Start the application"
 #~ msgstr "启动应用程序"
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp src/slic3r/GUI/Preferences.cpp
+msgid "Experimental: Enable residual stress analysis"
+msgstr "实验性：启用残余应力分析"
+
+#: src/slic3r/GUI/HelioReleaseNote.cpp
+msgid "When enabled, Helio performs residual stress analysis during simulations."
+msgstr "启用后，Helio 将在模拟过程中进行残余应力分析。"
+
+#: src/slic3r/GUI/Preferences.cpp
+msgid "When enabled, Helio performs residual stress analysis during simulations and optimizations"
+msgstr "启用后，Helio 将在模拟和优化过程中进行残余应力分析"
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Residual Stress Index"
+msgstr "残余应力指数"
+
+#: src/slic3r/GUI/GCodeRenderer/BaseRenderer.cpp
+msgid "Hull Shrinkage Index"
+msgstr "收缩纹路指数"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Preview G-code"
+msgstr "下载预览 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Download Print G-code"
+msgstr "下载打印 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Preview G-code"
+msgstr "保存预览 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "Save Print G-code"
+msgstr "保存打印 G-code"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code for printing."
+msgstr "用于打印的 G-code。"
+
+#: src/slic3r/GUI/HelioHistoryDialog.cpp
+msgid "G-code with analysis annotations for preview."
+msgstr "带有分析标注、用于预览的 G-code。"

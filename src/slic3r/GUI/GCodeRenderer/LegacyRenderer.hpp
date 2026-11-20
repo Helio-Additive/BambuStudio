@@ -169,6 +169,7 @@ namespace Slic3r {
                     float thermal_index_min{ 0.0f };
                     float thermal_index_max{ 0.0f };
                     float thermal_index_mean{ 0.0f };
+                    std::array<float, 9> warpage{ NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN };
                     // end helio
                     float volumetric_rate{ 0.0f };
                     float layer_time{ 0.0f };
