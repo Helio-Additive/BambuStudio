@@ -3482,7 +3482,8 @@ namespace Slic3r
             {
                 for (int i = int(view_type_items.size()) - 1; i >= 0; --i) {
                     const auto type = view_type_items[i];
-                    if (type >= EViewType::ThermalIndexMin && type < EViewType::Count) {
+                    if ((type >= EViewType::ThermalIndexMin && type <= EViewType::ThermalIndexMean) ||
+                        is_warpage_view(type)) {
                         view_type_items.erase(view_type_items.begin() + i);
                         view_type_image_names.erase(view_type_image_names.begin() + i);
                     }
