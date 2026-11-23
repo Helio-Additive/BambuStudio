@@ -122,7 +122,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
             brew install automake texinfo nasm yasm x264
-            brew uninstall --ignore-dependencies zstd
             brew unlink cmake || true
             brew tap --force homebrew/core
             brew tap-new $USER/old-cmake
@@ -130,6 +129,8 @@ jobs:
             brew install $USER/old-cmake/cmake@3.31.0
             brew link --overwrite cmake@3.31.0
             brew pin cmake@3.31.0
+            # Homebrew curl needs zstd while installing CMake.
+            brew uninstall --ignore-dependencies zstd
             ./BuildMac.sh -d -x -a x86_64 -t 10.15 -1
             for arch in x86_64; do
                 (cd "${{ github.workspace }}/deps/build/${arch}" && \
@@ -142,7 +143,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
             brew install automake texinfo nasm yasm x264
-            brew uninstall --ignore-dependencies zstd
             brew unlink cmake || true
             brew tap --force homebrew/core
             brew tap-new $USER/old-cmake
@@ -150,6 +150,8 @@ jobs:
             brew install $USER/old-cmake/cmake@3.31.0
             brew link --overwrite cmake@3.31.0
             brew pin cmake@3.31.0
+            # Homebrew curl needs zstd while installing CMake.
+            brew uninstall --ignore-dependencies zstd
             ./BuildMac.sh -d -x -a universal -t 10.15 -1
             for arch in arm64 x86_64; do
                 (cd "${{ github.workspace }}/deps/build/${arch}" && \
