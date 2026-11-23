@@ -1,65 +1,147 @@
 name: Build all
 
 on:
-  push:
-    branches:
-     - master
-    paths:
-     - 'deps/**'
-     - 'src/**'
-     - '**/CMakeLists.txt'
-     - 'version.inc'
-     - 'bbl/**'
-     - 'resources/**'
-     - ".github/workflows/build_*.yml"
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full commit SHA in the Helio fork to compile and smoke-test
+        required: true
+        type: string
 
-  pull_request:
-    branches:
-     - master
-    paths:
-     - 'deps/**'
-     - 'src/**'
-     - '**/CMakeLists.txt'
-     - 'version.inc'
-     - ".github/workflows/build_*.yml"
-     - 'BuildLinux.sh'
-     - 'build_win.bat'
-    
-  workflow_dispatch: # manual dispatch
-      inputs:
-        build-deps-only:
-            description: 'Only build dependencies (bypasses caching)'
-            type: boolean
-            default: false
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
 
 jobs:
-  build_all:
-    name: Build All
+  verify:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
-          - os: ubuntu-24.04
-          - os: ubuntu-26.04
-          - os: windows-latest
-          - os: windows-11-arm
-            arch: arm64
-          - os: windows-11-arm
-            arch: arm64ec
-          - os: macos-15-intel
-            arch: x86_64
-          - os: macos-15
-            arch: arm64
-          - os: macos-26
-            arch: arm64
-    uses: ./.github/workflows/build_check_cache.yml
-    with:
-      os: ${{ matrix.os }}
-      arch: ${{ matrix.arch }}
-      build-deps-only: ${{ inputs.build-deps-only || false }}
-    secrets: inherit
+          - {target: ubuntu-22.04, os: ubuntu-22.04, deps: '12331267782'}
+          - {target: ubuntu-24.04, os: ubuntu-24.04, deps: '12330821811'}
+          - {target: ubuntu-26.04, os: ubuntu-26.04, deps: '12331372971'}
+          - {target: windows-x64, os: windows-latest, arch: x64, deps: '12332425413'}
+          - {target: windows-arm64, os: windows-11-arm, arch: ARM64, deps: '12402494550'}
+          - {target: windows-arm64ec, os: windows-11-arm, arch: ARM64EC, deps: '12333929345'}
+          - {target: macos-15-intel, os: macos-15-intel, arch: x86_64, deps: '12345008801'}
+          - {target: macos-15-arm64, os: macos-15, arch: arm64, deps: '12338627471'}
+          - {target: macos-26-arm64, os: macos-26, arch: arm64, deps: '12341243239'}
+    env:
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          lfs: true
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+          path: harness
+          persist-credentials: false
+      - name: Verify candidate commit
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "Candidate commit: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Restore dependency bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS_ARTIFACT: ${{ matrix.deps }}
+        run: python3 harness/.github/scripts/restore-test-deps.py
+        shell: bash
+      - name: Configure macOS build tools
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          python3 harness/.github/scripts/relocate-mac-metadata.py .
+          brew install automake texinfo
+          python3 -m venv "$RUNNER_TEMP/cmake-331"
+          "$RUNNER_TEMP/cmake-331/bin/pip" install cmake==3.31.0.1
+          echo "$RUNNER_TEMP/cmake-331/bin" >> "$GITHUB_PATH"
+      - name: Build and package macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          CMAKE_BUILD_PARALLEL_LEVEL=3 ./BuildMac.sh -s -x -a "$ARCH" -t 10.15
+          app="build/$ARCH/BambuStudio/BambuStudio.app"
+          mkdir -p packages
+          ditto -c -k --sequesterRsrc --keepParent "$app" "packages/BambuStudio-$TARGET.zip"
+      - name: Build and package Linux application
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo ./BuildLinux.sh -ur
+          sudo apt-get install -y xvfb xauth
+          sudo chown "$USER" -R .
+          ./BuildLinux.sh -isfr
+          mkdir -p packages
+          cp build/BambuStudio_ubu64.AppImage "packages/BambuStudio-$TARGET.AppImage"
+      - name: Build and package Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis pkgconfiglite -y
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $pkg = Get-ChildItem "$env:ChocolateyInstall/lib/pkgconfiglite" -Filter pkg-config.exe -Recurse -File | Select-Object -First 1
+          if (!$pkg) { throw "Missing pkgconfiglite" }
+          $instance = @()
+          $generator = "Visual Studio 18 2026"
+          if ($env:ARCH -ne "x64") {
+            $toolchain = & ./harness/.github/scripts/select-arm64-toolchain.ps1
+            $generator = $toolchain.Generator
+            $instance = @("-DCMAKE_GENERATOR_INSTANCE=$($toolchain.InstallationPath)")
+          }
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/Include" -Directory |
+            Where-Object { $_.Name -match '^10\.' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (!$sdk) { throw "Missing Windows 10 SDK" }
+          cmake -S . -B build -G $generator -A $env:ARCH @instance -DBBL_RELEASE_TO_PUBLIC=1 -DBBL_INTERNAL_TESTING=0 "-DCMAKE_PREFIX_PATH=$pwd/deps/build/BambuStudio_dep/usr/local" "-DCMAKE_INSTALL_PREFIX=$pwd/install-dir" "-DWIN10SDK_PATH=$($sdk.FullName)" "-DPKG_CONFIG_EXECUTABLE=$($pkg.FullName)"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --target install --config Release -- -m
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force packages | Out-Null
+          & "C:/Program Files/7-Zip/7z.exe" a -tzip "packages/BambuStudio-$env:TARGET.zip" install-dir
+          exit $LASTEXITCODE
+      - name: Upload desktop package
+        uses: actions/upload-artifact@v6
+        with:
+          name: BambuStudio-${{ matrix.target }}-${{ inputs.source_sha }}
+          path: packages/
+          if-no-files-found: error
+      - name: Run Helio regression tests
+        shell: bash
+        run: |
+          cmake -S tests/helio -B helio-tests
+          cmake --build helio-tests --config Release
+          ctest --test-dir helio-tests -C Release --output-on-failure
+      - name: Smoke-test packaged Linux or macOS application
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir smoke
+          cd smoke
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            ditto -x -k "../packages/BambuStudio-$TARGET.zip" .
+            ./BambuStudio.app/Contents/MacOS/BambuStudio --help > help.txt
+          else
+            image="../packages/BambuStudio-$TARGET.AppImage"
+            chmod +x "$image"
+            "$image" --appimage-extract > /dev/null
+            xvfb-run -a ./squashfs-root/AppRun --help > help.txt
+          fi
+          grep -F 'Usage: bambu-studio' help.txt
+      - name: Smoke-test packaged Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "C:/Program Files/7-Zip/7z.exe" x "packages/BambuStudio-$env:TARGET.zip" -osmoke
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $app = Resolve-Path smoke/install-dir/bambu-studio.exe
+          $process = Start-Process -FilePath $app -ArgumentList '--help' -PassThru
+          if (!$process.WaitForExit(120000)) { $process.Kill(); throw "Application help timed out" }
+          if ($process.ExitCode -ne 0) { throw "Application exited with $($process.ExitCode)" }
