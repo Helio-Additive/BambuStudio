@@ -1,6 +1,8 @@
 name: Build all
 
 on:
+  pull_request:
+    branches: [pr71-merge-261021-bambu-master]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -32,11 +34,11 @@ jobs:
     env:
       TARGET: ${{ matrix.target }}
       ARCH: ${{ matrix.arch }}
-      SOURCE_SHA: ${{ inputs.source_sha }}
+      SOURCE_SHA: ${{ github.event.pull_request.base.sha || inputs.source_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ env.SOURCE_SHA }}
           lfs: true
           persist-credentials: false
       - uses: actions/checkout@v6
@@ -90,6 +92,14 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $pkg = Get-ChildItem "$env:ChocolateyInstall/lib/pkgconfiglite" -Filter pkg-config.exe -Recurse -File | Select-Object -First 1
           if (!$pkg) { throw "Missing pkgconfiglite" }
+          # Stage the exact Node archive used by DeviceWeb before configuring CMake.
+          $cache = Join-Path (Split-Path $PWD.Path) "node-cache"
+          New-Item -ItemType Directory -Force $cache | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP "node-v22.22.2-win-x64.zip"
+          Invoke-WebRequest https://nodejs.org/dist/v22.22.2/node-v22.22.2-win-x64.zip -OutFile $zip
+          if ((Get-FileHash $zip).Hash -ne "7c93e9d92bf68c07182b471aa187e35ee6cd08ef0f24ab060dfff605fcc1c57c") { throw "Node checksum mismatch" }
+          tar -xf $zip -C $cache
+          if ($LASTEXITCODE -or !(Test-Path "$cache/node-v22.22.2-win-x64/node.exe")) { throw "Node extraction failed" }
           $instance = @()
           $generator = "Visual Studio 18 2026"
           if ($env:ARCH -ne "x64") {
@@ -110,7 +120,7 @@ jobs:
       - name: Upload desktop package
         uses: actions/upload-artifact@v6
         with:
-          name: BambuStudio-${{ matrix.target }}-${{ inputs.source_sha }}
+          name: BambuStudio-${{ matrix.target }}-${{ env.SOURCE_SHA }}
           path: packages/
           if-no-files-found: error
       - name: Run Helio regression tests
