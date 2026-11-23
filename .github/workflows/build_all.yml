@@ -51,14 +51,39 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           echo "Candidate commit: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+      # This run built the same candidate successfully before the Windows test configuration changed.
+      - name: Find previously built candidate package
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/45169027722/artifacts?per_page=100" \
+            | jq -r --arg name "BambuStudio-$TARGET-$SOURCE_SHA" '.artifacts[] | select(.name == $name and (.expired | not)) | .id')
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Download previously built candidate package
+        if: steps.previous.outputs.id != ''
+        uses: actions/download-artifact@v6
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45169027722
+          artifact-ids: ${{ steps.previous.outputs.id }}
+          path: packages
+          merge-multiple: true
+      - name: Prepare Linux runtime for package check
+        if: runner.os == 'Linux' && steps.previous.outputs.id != ''
+        run: |
+          sudo ./BuildLinux.sh -ur
+          sudo apt-get install -y xvfb xauth
       - name: Restore dependency bundle
+        if: steps.previous.outputs.id == ''
         env:
           GH_TOKEN: ${{ github.token }}
           DEPS_ARTIFACT: ${{ matrix.deps }}
         run: python3 harness/.github/scripts/restore-test-deps.py
         shell: bash
       - name: Configure macOS build tools
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.previous.outputs.id == ''
         shell: bash
         run: |
           python3 harness/.github/scripts/relocate-mac-metadata.py .
@@ -67,7 +92,7 @@ jobs:
           "$RUNNER_TEMP/cmake-331/bin/pip" install cmake==3.31.0.1
           echo "$RUNNER_TEMP/cmake-331/bin" >> "$GITHUB_PATH"
       - name: Build and package macOS application
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.previous.outputs.id == ''
         shell: bash
         run: |
           CMAKE_BUILD_PARALLEL_LEVEL=3 ./BuildMac.sh -s -x -a "$ARCH" -t 10.15
@@ -75,7 +100,7 @@ jobs:
           mkdir -p packages
           ditto -c -k --sequesterRsrc --keepParent "$app" "packages/BambuStudio-$TARGET.zip"
       - name: Build and package Linux application
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.previous.outputs.id == ''
         shell: bash
         run: |
           sudo ./BuildLinux.sh -ur
@@ -85,7 +110,7 @@ jobs:
           mkdir -p packages
           cp build/BambuStudio_ubu64.AppImage "packages/BambuStudio-$TARGET.AppImage"
       - name: Build and package Windows application
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.previous.outputs.id == ''
         shell: pwsh
         run: |
           choco install nsis pkgconfiglite -y
@@ -118,6 +143,7 @@ jobs:
           & "C:/Program Files/7-Zip/7z.exe" a -tzip "packages/BambuStudio-$env:TARGET.zip" install-dir
           exit $LASTEXITCODE
       - name: Upload desktop package
+        id: upload
         uses: actions/upload-artifact@v6
         with:
           name: BambuStudio-${{ matrix.target }}-${{ env.SOURCE_SHA }}
@@ -126,6 +152,11 @@ jobs:
       - name: Run Helio regression tests
         shell: bash
         run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            # The standalone project does not inherit the desktop project's MSVC encoding.
+            export CL=-utf-8
+            export CMAKE_GENERATOR_PLATFORM="$ARCH"
+          fi
           cmake -S tests/helio -B helio-tests
           cmake --build helio-tests --config Release
           ctest --test-dir helio-tests -C Release --output-on-failure
@@ -146,7 +177,7 @@ jobs:
           fi
           grep -F 'Usage: bambu-studio' help.txt
       - name: Smoke-test packaged Windows application
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.upload.outcome == 'success' }}
         shell: pwsh
         run: |
           & "C:/Program Files/7-Zip/7z.exe" x "packages/BambuStudio-$env:TARGET.zip" -osmoke
