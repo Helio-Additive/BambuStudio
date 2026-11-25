@@ -28,9 +28,9 @@ jobs:
           - {target: windows-x64, os: windows-latest, arch: x64, deps: '12332425413'}
           - {target: windows-arm64, os: windows-11-arm, arch: ARM64, deps: '12402494550'}
           - {target: windows-arm64ec, os: windows-11-arm, arch: ARM64EC, deps: '12333929345'}
-          - {target: macos-15-intel, os: macos-15-intel, arch: x86_64, deps: '12345008801'}
-          - {target: macos-15-arm64, os: macos-15, arch: arm64, deps: '12338627471'}
-          - {target: macos-26-arm64, os: macos-26, arch: arm64, deps: '12341243239'}
+          - {target: macos-15-intel, os: macos-15-intel, arch: x86_64, deps: '12345008801', signing_input: '14827767422', zip_sha256: 'a0c248a81f5cad40234f981d7366b1c37cd40af4e8ba22252bcd66c88bab9678'}
+          - {target: macos-15-arm64, os: macos-15, arch: arm64, deps: '12338627471', signing_input: '14828468117', zip_sha256: '707932e68886f7e620f82d5f1bfc9ae068feac016e1354f254219ff48a7b5b57'}
+          - {target: macos-26-arm64, os: macos-26, arch: arm64, deps: '12341243239', signing_input: '14830361147', zip_sha256: '6bd8474d07db3d1ee9e2b9f348039f737d587c78426e1a9892dbb21be3cf7799'}
     env:
       TARGET: ${{ matrix.target }}
       ARCH: ${{ matrix.arch }}
@@ -51,14 +51,14 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           echo "Candidate commit: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
-      # This run built the same candidate successfully before the Windows test configuration changed.
+      # Reuse the exact desktop packages from the completed nine-platform candidate run.
       - name: Find previously built candidate package
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/45169027722/artifacts?per_page=100" \
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/45193077642/artifacts?per_page=100" \
             | jq -r --arg name "BambuStudio-$TARGET-$SOURCE_SHA" '.artifacts[] | select(.name == $name and (.expired | not)) | .id')
           echo "id=$id" >> "$GITHUB_OUTPUT"
       - name: Download previously built candidate package
@@ -66,7 +66,7 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           github-token: ${{ github.token }}
-          run-id: 45169027722
+          run-id: 45193077642
           artifact-ids: ${{ steps.previous.outputs.id }}
           path: packages
           merge-multiple: true
@@ -142,6 +142,62 @@ jobs:
           New-Item -ItemType Directory -Force packages | Out-Null
           & "C:/Program Files/7-Zip/7z.exe" a -tzip "packages/BambuStudio-$env:TARGET.zip" install-dir
           exit $LASTEXITCODE
+      - name: Verify approved Mac signing input
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VERIFIED_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 77 && github.event.pull_request.head.repo.full_name == 'Helio-Additive/BambuStudio' && github.head_ref == 'agent/pr75-build-validation' }}
+          INPUT_ID: ${{ steps.previous.outputs.id }}
+          EXPECTED_ID: ${{ matrix.signing_input }}
+          ZIP_SHA256: ${{ matrix.zip_sha256 }}
+        run: |
+          test "$VERIFIED_PR" = true
+          test "$SOURCE_SHA" = 18e1746c55ea63001bc32b8637b4b35db9218c06
+          test "$INPUT_ID" = "$EXPECTED_ID"
+          echo "$ZIP_SHA256  packages/BambuStudio-$TARGET.zip" | shasum -a 256 -c -
+          mkdir mac-package
+          ditto -x -k "packages/BambuStudio-$TARGET.zip" mac-package
+          lipo -verify_arch "$ARCH" mac-package/BambuStudio.app/Contents/MacOS/BambuStudio
+      - name: Sign Mac tester app with Developer ID
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: bash harness/.github/scripts/sign-mac-tester.sh mac-package/BambuStudio.app
+      - name: Notarize and staple the Mac tester app
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          app=mac-package/BambuStudio.app
+          zip="$RUNNER_TEMP/notary-input.zip"
+          ditto -c -k --keepParent "$app" "$zip"
+          auth=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD")
+          response="$RUNNER_TEMP/notary-response.json"
+          xcrun notarytool submit "$zip" "${auth[@]}" --wait --timeout 45m --output-format json > "$response"
+          if ! jq -e '.status == "Accepted"' "$response"; then
+            xcrun notarytool log "$(jq -er .id "$response")" "${auth[@]}"
+            exit 1
+          fi
+          xcrun stapler staple "$app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarized.zip"
+          mv "$RUNNER_TEMP/notarized.zip" "packages/BambuStudio-$TARGET.zip"
+      - name: Check Gatekeeper on the final Mac ZIP
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir mac-gatekeeper
+          ditto -x -k "packages/BambuStudio-$TARGET.zip" mac-gatekeeper
+          app=mac-gatekeeper/BambuStudio.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");PR77Tester;" "$app"
+          spctl --assess --type execute --verbose=4 "$app" 2>&1 | tee "$RUNNER_TEMP/gatekeeper.txt"
+          grep -F 'source=Notarized Developer ID' "$RUNNER_TEMP/gatekeeper.txt"
       - name: Upload desktop package
         id: upload
         uses: actions/upload-artifact@v6
