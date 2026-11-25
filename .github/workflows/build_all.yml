@@ -157,7 +157,7 @@ jobs:
           echo "$ZIP_SHA256  packages/BambuStudio-$TARGET.zip" | shasum -a 256 -c -
           mkdir mac-package
           ditto -x -k "packages/BambuStudio-$TARGET.zip" mac-package
-          lipo -verify_arch "$ARCH" mac-package/BambuStudio.app/Contents/MacOS/BambuStudio
+          lipo mac-package/BambuStudio.app/Contents/MacOS/BambuStudio -verify_arch "$ARCH"
       - name: Sign Mac tester app with Developer ID
         if: runner.os == 'macOS'
         shell: bash
