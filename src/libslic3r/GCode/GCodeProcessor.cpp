@@ -4,6 +4,7 @@
 #include "libslic3r/LocalesUtils.hpp"
 #include "libslic3r/format.hpp"
 #include "GCodeProcessor.hpp"
+#include "HelioMetadata.hpp"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -35,6 +36,8 @@ static const float DRAW_ARC_TOLERANCE = 0.0125f;            //0.0125mm tolerance
 static const float DEFAULT_ACCELERATION = 1500.0f; // Prusa Firmware 1_75mm_MK2
 static const float DEFAULT_RETRACT_ACCELERATION = 1500.0f; // Prusa Firmware 1_75mm_MK2
 static const float DEFAULT_TRAVEL_ACCELERATION = 1250.0f;
+
+using Slic3r::HelioMetadata::parse_warpage_fields;
 
 static const size_t MIN_EXTRUDERS_COUNT = 5;
 static const float DEFAULT_FILAMENT_DIAMETER = 1.75f;
@@ -1537,7 +1540,11 @@ void GCodeProcessor::UsedFilaments::process_caches(GCodeProcessor* processor)
 void GCodeProcessorResult::reset() {
     //BBS: add mutex for protection of gcode result
     lock();
+    is_helio_gcode = false;
+    warpage_wdm_p95 = NAN;
+    warpage_whs_p95 = NAN;
 
+    sliced_layer_count = 0;
     moves = std::vector<GCodeProcessorResult::MoveVertex>();
     printable_area = Pointfs();
     //BBS: add bed exclude area
@@ -1571,7 +1578,11 @@ void GCodeProcessorResult::reset() {
 void GCodeProcessorResult::reset() {
     //BBS: add mutex for protection of gcode result
     lock();
+    is_helio_gcode = false;
+    warpage_wdm_p95 = NAN;
+    warpage_whs_p95 = NAN;
 
+    sliced_layer_count = 0;
     moves.clear();
     lines_ends.clear();
     printable_area = Pointfs();
@@ -2588,6 +2599,8 @@ void GCodeProcessor::reset()
     m_extrusion_role = erNone;
 
     m_is_helio_gcode   = false;
+    m_pending_helio_gcode_id.reset();
+    m_warpage_fields.fill(NAN);
     m_filament_id = {static_cast<unsigned char>(-1),static_cast<unsigned char>(-1)};
     m_last_filament_id = {static_cast<unsigned char>(-1),static_cast<unsigned char>(-1) };
     m_extruder_id = static_cast<unsigned char>(-1);
@@ -2855,6 +2868,10 @@ void GCodeProcessor::finalize(bool post_process)
         m_time_processor.post_process(m_result.filename, m_result.moves, m_result.lines_ends, context);
     }
 
+    // Preserve the logical layer count for both local export and file loading.
+    // The exporter's planned total_layer_count may include layers not emitted.
+    m_result.sliced_layer_count = m_layer_id;
+
     m_result.pause_printing.clear();
     const auto& normal_machine = m_time_processor.machines[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)];
     m_result.pause_printing.reserve(normal_machine.pause_times.size());
@@ -3075,6 +3092,36 @@ void GCodeProcessor::apply_config_simplify3d(const std::string& filename)
 void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool producers_enabled)
 {
 /* std::cout << line.raw() << std::endl; */
+    const std::string& raw = line.raw();
+    std::string_view   standalone_comment(raw);
+    const size_t       comment_begin = standalone_comment.find_first_not_of(" \t");
+    if (comment_begin != std::string_view::npos)
+        standalone_comment.remove_prefix(comment_begin);
+    const bool is_standalone_helio_comment = boost::starts_with(standalone_comment, ";helioadditive=");
+    if (m_pending_helio_gcode_id && is_standalone_helio_comment) {
+        std::array<float, 9> warpage_fields{ NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN };
+        if (parse_warpage_fields(standalone_comment.substr(sizeof(";helioadditive=") - 1), warpage_fields)) {
+            m_is_helio_gcode = true;
+            // calculate_time() may insert speed vertices while processing a move.
+            // Associate metadata by the stable G-code ID, not a saved vector index.
+            for (auto it = m_result.moves.rbegin(); it != m_result.moves.rend() &&
+                 it->gcode_id == *m_pending_helio_gcode_id; ++it) {
+                auto& move = *it;
+                if (!std::isnan(warpage_fields[0])) move.warpage_displacement    = warpage_fields[0];
+                if (!std::isnan(warpage_fields[1])) move.warpage_disp_x          = warpage_fields[1];
+                if (!std::isnan(warpage_fields[2])) move.warpage_disp_y          = warpage_fields[2];
+                if (!std::isnan(warpage_fields[3])) move.warpage_disp_z          = warpage_fields[3];
+                if (!std::isnan(warpage_fields[4])) move.warpage_risk            = warpage_fields[4];
+                if (!std::isnan(warpage_fields[5])) move.warpage_ti_gradient     = warpage_fields[5];
+                if (!std::isnan(warpage_fields[6])) move.warpage_thermal_strain  = warpage_fields[6];
+                if (!std::isnan(warpage_fields[7])) move.warpage_hull_shrinkage  = warpage_fields[7];
+                if (!std::isnan(warpage_fields[8])) move.warpage_layer_shrinkage = warpage_fields[8];
+            }
+        }
+    }
+    m_pending_helio_gcode_id.reset();
+
+
 
     ++m_line_id;
 
@@ -3082,6 +3129,8 @@ void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool
     m_start_position = m_end_position;
 
     const std::string_view cmd = line.cmd();
+    const bool is_move = boost::iequals(cmd, "G0") || boost::iequals(cmd, "G1") ||
+                         boost::iequals(cmd, "G2") || boost::iequals(cmd, "G3");
     //OrcaSlicer
     if (m_flavor == gcfKlipper)
     {
@@ -3093,8 +3142,14 @@ void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool
     }
 
     if (cmd.length() > 1) {
+        // A no-op must not reuse an event vertex whose ID points to this line.
+        const size_t moves_count_before = m_result.moves.size();
         // process command lines
         m_command_processor.process_comand(cmd, line);
+        // Helio may emit the warpage record on the line after a move even when
+        // that move has no inline thermal-index annotation.
+        if (is_move && m_result.moves.size() > moves_count_before && m_result.moves.back().gcode_id == m_line_id)
+            m_pending_helio_gcode_id = m_line_id;
     }
     else {
         const std::string &comment = line.raw();
@@ -3122,7 +3177,12 @@ void GCodeProcessor::process_gcode_line(const GCodeReader::GCodeLine& line, bool
 void GCodeProcessor::process_helioadditive_comment(const GCodeReader::GCodeLine &line)
 {
     const std::string &comment = line.raw();
-    m_thermal_index            = parse_helioadditive_comment(comment, m_is_helio_gcode);
+    m_thermal_index = parse_helioadditive_comment(comment, m_is_helio_gcode);
+    m_warpage_fields.fill(NAN);
+    const auto pos = comment.find(";helioadditive=");
+    if (pos != std::string::npos && parse_warpage_fields(
+            std::string_view(comment).substr(pos + sizeof(";helioadditive=") - 1), m_warpage_fields))
+        m_is_helio_gcode = true;
 }
 
 #if __has_include(<charconv>)
@@ -3380,6 +3440,13 @@ bool GCodeProcessor::get_last_position_from_gcode(const std::string &gcode_str, 
 
 void GCodeProcessor::process_tags(const std::string_view comment, bool producers_enabled)
 {
+    auto parse_percentile = [comment](std::string_view prefix, float& value) {
+        if (!boost::starts_with(comment, prefix)) return false;
+        HelioMetadata::parse_percentile(comment.substr(prefix.size()), value);
+        return true;
+    };
+    if (parse_percentile(" WARPAGE_WDM_P95=", m_result.warpage_wdm_p95) ||
+        parse_percentile(" WARPAGE_WHS_P95=", m_result.warpage_whs_p95)) return;
     static ExtrusionRole prev_role;
     // producers tags
     if (producers_enabled && process_producers_tags(comment))
@@ -6194,6 +6261,15 @@ void GCodeProcessor::store_move_vertex(EMoveType type, EMovePathType path_type)
         m_thermal_index.min,
         m_thermal_index.max,
         m_thermal_index.mean,
+        m_warpage_fields[0],
+        m_warpage_fields[1],
+        m_warpage_fields[2],
+        m_warpage_fields[3],
+        m_warpage_fields[4],
+        m_warpage_fields[5],
+        m_warpage_fields[6],
+        m_warpage_fields[7],
+        m_warpage_fields[8],
         {0.f,0.f}, // prefix sum of move time to this move : set later
         //BBS: add plate's offset to the rendering vertices
         Vec3f(m_end_position[X] + m_x_offset, m_end_position[Y] + m_y_offset, m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z]) + m_extruder_offsets[filament_id],

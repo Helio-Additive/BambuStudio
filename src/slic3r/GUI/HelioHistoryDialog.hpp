@@ -69,7 +69,10 @@ private:
     // Actions
     void on_refresh(wxMouseEvent& event);
     void on_close(wxMouseEvent& event);
-    void on_download_gcode(const std::string& gcode_url, const std::string& run_name);
+    void add_download_buttons(wxWindow* parent, wxBoxSizer* row,
+                              const std::string& preview_url, const std::string& print_url,
+                              const std::string& run_name, const StateColor& background);
+    void on_download_gcode(const std::string& gcode_url, const std::string& run_name, bool for_print);
     void on_view_details_opt(const HelioQuery::OptimizationRun& run);
     void on_view_details_sim(const HelioQuery::SimulationRun& run);
     void on_helio_completion(wxEvent& event);

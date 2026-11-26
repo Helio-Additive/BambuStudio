@@ -4566,6 +4566,12 @@ size_t MainFrame::FileHistory::FindFileInHistory(const wxString & file)
 
 void MainFrame::FileHistory::LoadThumbnailsAsync()
 {
+    // Set this up front: entries added while the scan is still running then take the synchronous
+    // path in AddFileToHistory, instead of getting an empty thumbnail that nothing ever fills in.
+    m_load_called = true;
+
+#ifndef __APPLE__
+    // Opening recent projects at startup can trigger macOS file access prompts.
     // Snapshot on the main thread. GetCount() / GetHistoryFile() read wxFileHistory's own array,
     // which AddFileToHistory / RemoveFileFromHistory may reshape at any time, so a worker holding
     // indices into it would read out of bounds.
@@ -4573,10 +4579,6 @@ void MainFrame::FileHistory::LoadThumbnailsAsync()
     files.reserve(GetCount());
     for (size_t i = 0; i < GetCount(); ++i)
         files.push_back(GetHistoryFile(i));
-
-    // Set this up front: entries added while the scan is still running then take the synchronous
-    // path in AddFileToHistory, instead of getting an empty thumbnail that nothing ever fills in.
-    m_load_called = true;
 
     if (files.empty()) {
         BOOST_LOG_TRIVIAL(info) << "no recent project to load thumbnails for";
@@ -4641,6 +4643,7 @@ void MainFrame::FileHistory::LoadThumbnailsAsync()
             BOOST_LOG_TRIVIAL(error) << "LoadThumbnailsAsync failed";
         }
     }).detach();
+#endif
 }
 
 void MainFrame::FileHistory::ApplyThumbnails(const std::vector<wxString> &files, const std::vector<std::string> &data)

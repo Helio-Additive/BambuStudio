@@ -2179,6 +2179,8 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
     }
 
     BOOST_LOG_TRIVIAL(info) << "Exporting G-code finished" << log_memory_info();
+    // sliced_layer_count comes from the processor's actual emitted layers.
+    // m_layer_count is an estimate used by placeholders and may include skipped layers.
     print->set_done(psGCodeExport);
     //BBS: set enable_label_object
     result->label_object_enabled = m_enable_label_object;

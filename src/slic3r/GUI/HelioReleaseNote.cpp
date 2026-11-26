@@ -884,6 +884,44 @@ void HelioStatementDialog::create_pat_page()
         content_sizer->Add(mm_row, 0, wxALIGN_CENTER, 0);
     }
 
+    content_sizer->Add(0, 0, 0, wxTOP, FromDIP(12));
+
+    // Warping-analysis feature toggle
+    {
+        wxBoxSizer* warping_row = new wxBoxSizer(wxHORIZONTAL);
+        auto* warping_checkbox = new ::CheckBox(page_pat_panel);
+
+        warping_checkbox->SetValue(wxGetApp().app_config->get_bool("helio_warping_analysis_enabled"));
+
+        auto* warping_label = new Label(page_pat_panel, Label::Body_13,
+            _L("Experimental: Enable residual stress analysis"));
+        warping_label->SetForegroundColour(HELIO_MUTED);
+        warping_label->SetToolTip(_L("When enabled, Helio performs residual stress analysis during simulations."));
+
+        auto save_warping_setting = [warping_checkbox]() {
+            const bool enabled = warping_checkbox->GetValue();
+            wxGetApp().app_config->set_bool("helio_warping_analysis_enabled", enabled);
+            wxGetApp().app_config->save();
+            BOOST_LOG_TRIVIAL(info) << "helio_warping_analysis_enabled set to " << (enabled ? "true" : "false");
+            warping_checkbox->Refresh(false);
+            warping_checkbox->Update();
+        };
+
+        warping_checkbox->Bind(wxEVT_TOGGLEBUTTON, [save_warping_setting](wxCommandEvent& e) {
+            save_warping_setting();
+            e.Skip();
+        });
+
+        warping_label->Bind(wxEVT_LEFT_DOWN, [warping_checkbox, save_warping_setting](wxMouseEvent&) {
+            warping_checkbox->SetValue(!warping_checkbox->GetValue());
+            save_warping_setting();
+        });
+
+        warping_row->Add(warping_checkbox, 0, wxALIGN_CENTER_VERTICAL, 0);
+        warping_row->Add(warping_label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+        content_sizer->Add(warping_row, 0, wxALIGN_CENTER, 0);
+    }
+
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(24));
     content_sizer->Add(helio_links_sizer, 0, wxALIGN_CENTER, 0);
     content_sizer->Add(0, 0, 0, wxTOP, FromDIP(20));
@@ -1432,9 +1470,10 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     // Check badges removed - using colored/greyscale icons instead
 }
 
- HelioInputDialog::HelioInputDialog(wxWindow *parent /*= nullptr*/, const std::string& material_id /*= ""*/)
+ HelioInputDialog::HelioInputDialog(wxWindow *parent /*= nullptr*/, const std::string& material_id /*= ""*/,
+                                     boost::optional<bool> is_multi_material)
     : DPIDialog(static_cast<wxWindow *>(wxGetApp().mainframe), wxID_ANY, wxString("Helio Additive"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
-      m_material_id(material_id)
+      m_material_id(material_id), m_is_multi_material(is_multi_material)
 {
     shared_ptr = std::make_shared<int>(0);
     auto theme = get_theme();
@@ -1972,7 +2011,8 @@ void HelioInputDialog::update_mode_card_styling(int selected_action)
     auto outerwall = create_print_priority_combo(card_optimization_settings);
 
     auto plater = Slic3r::GUI::wxGetApp().plater();
-    int layer_count = plater ? plater->get_gcode_layers_count() : 0;
+    m_sliced_layer_count = plater ? plater->get_sliced_layers_count() : 0;
+    int layer_count = static_cast<int>(m_sliced_layer_count);
     wxBoxSizer* layers_to_optimize_item = create_input_optimize_layers(card_optimization_settings, layer_count);
 
     std::map<int, wxString> config_limits;
@@ -2598,7 +2638,7 @@ wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int
     wxColour input_bg_color = theme.card2;
     wxColour disabled_bg = wxColour(30, 35, 45);
     StateColor input_bg(std::pair<wxColour, int>(disabled_bg, StateColor::Disabled), std::pair<wxColour, int>(input_bg_color, StateColor::Enabled));
-    auto layer_range_checker = TextInputValChecker::CreateIntRangeChecker(0, layer_count);
+    auto layer_range_checker = TextInputValChecker::CreateIntRangeChecker(layer_count > 0 ? 1 : 0, layer_count);
     wxColour error_bg = wxColour(80, 40, 50);
 
     // Equal-sized layer inputs
@@ -2617,7 +2657,7 @@ wxBoxSizer* HelioInputDialog::create_input_optimize_layers(wxWindow* parent, int
     });
     m_layer_min_item->GetTextCtrl()->SetValidator(wxTextValidator(wxFILTER_NUMERIC));
     m_layer_min_item->GetTextCtrl()->SetMaxLength(10);
-    m_layer_min_item->GetTextCtrl()->SetLabel("2");
+    m_layer_min_item->GetTextCtrl()->SetLabel(layer_count > 1 ? "2" : (layer_count == 1 ? "1" : "0"));
     m_layer_min_item->SetValCheckers({layer_range_checker});
     m_layer_min_item->SetToolTip(layers_tooltip);
     m_layer_min_item->GetTextCtrl()->SetToolTip(layers_tooltip);
@@ -2806,7 +2846,7 @@ void HelioInputDialog::fetch_print_priority_options()
     }
 
     // Check cache first
-    auto cached_options = HelioQuery::get_cached_print_priority_options(m_material_id);
+    auto cached_options = HelioQuery::get_cached_print_priority_options(m_material_id, m_is_multi_material);
     if (!cached_options.empty()) {
         m_print_priority_options = cached_options;
         update_print_priority_dropdown();
@@ -2863,7 +2903,8 @@ void HelioInputDialog::fetch_print_priority_options()
                     }
                 });
             }
-        }
+        },
+        m_is_multi_material
     );
 }
 
@@ -2999,6 +3040,20 @@ Slic3r::HelioQuery::OptimizationInput HelioInputDialog::get_optimization_input(b
         int temp = data.layers_to_optimize[0];
         data.layers_to_optimize[0] = data.layers_to_optimize[1];
         data.layers_to_optimize[1] = temp;
+    }
+
+    auto* plater = wxGetApp().plater();
+    const unsigned int current_count = plater ? plater->get_sliced_layers_count() : 0;
+    if (m_sliced_layer_count == 0 || current_count != m_sliced_layer_count) {
+        wxMessageBox(_L("Please slice the current plate again and reopen Helio to obtain its optimization layer range."),
+                     _L("Helio"), wxOK | wxICON_WARNING, this);
+        return data;
+    }
+    if (data.layers_to_optimize[0] < 1 ||
+        data.layers_to_optimize[1] > static_cast<int>(current_count)) {
+        wxMessageBox(_L("The optimization layer range must be within the current plate's sliced layers."),
+                     _L("Helio"), wxOK | wxICON_WARNING, this);
+        return data;
     }
 
     // Check Limits selection - only read velocity/volumetric speed when "Slicer default" is selected

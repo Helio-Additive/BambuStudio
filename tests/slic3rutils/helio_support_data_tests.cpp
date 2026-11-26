@@ -569,3 +569,17 @@ TEST_CASE("Helio support catalog pair rejects stale generations and never mixes 
     REQUIRE((*ready_b.printers)[0].id == "printer-B");
     REQUIRE((*ready_b.materials)[0].id == "material-B");
 }
+
+TEST_CASE("Helio material catalog normalizes aliases and falls back after normalization", "[Helio][SupportData]")
+{
+    for (const auto& alias : std::vector<nlohmann::json>{nullptr, "", "  ", u8"□", u8"🟧 Xioneer VXL111"}) {
+        auto response = material_page(1, 1, false, {{"xioneer", "Xioneer VXL111"}});
+        auto body = nlohmann::json::parse(response.body);
+        body["data"]["materials"]["objects"][0]["alternativeNames"]["bambustudio"] = alias;
+        response.body = body.dump();
+        const auto result = Slic3r::parse_support_data_page(SupportDataCatalogKind::Materials, 1, response);
+        REQUIRE(result.success);
+        REQUIRE(result.items.size() == 1);
+        CHECK(result.items[0].native_name == "Xioneer VXL111");
+    }
+}
