@@ -935,7 +935,8 @@ HelioQuery::PresignedURLResult HelioQuery::create_presigned_url(const std::strin
     return res;
 };
 
-HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std::string file_path_string, const std::string upload_url)
+HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std::string file_path_string, const std::string upload_url,
+                                                                    const std::function<bool()>& is_canceled)
 {
     UploadFileResult res;
     res.success = false;
@@ -948,6 +949,9 @@ HelioQuery::UploadFileResult HelioQuery::upload_file_to_presigned_url(const std:
     boost::filesystem::path file_path(file_path_string);
 
     http.set_put_body(file_path)
+        .on_progress([&is_canceled](Http::Progress, bool& cancel) {
+            cancel = is_canceled && is_canceled();
+        })
         .on_header_callback([&res](std::string header_line) {
             std::string lower_line;
             for (unsigned char c : header_line) {
@@ -2360,6 +2364,8 @@ bool HelioBackgroundProcess::begin_action()
     }
 
     ++m_action_generation;
+    current_simulation_result.reset();
+    current_optimization_result.reset();
     m_state = STATE_STARTED;
     return true;
 }
@@ -2384,6 +2390,26 @@ bool HelioBackgroundProcess::is_action_current(std::uint64_t generation)
     return generation != 0 && generation == m_action_generation;
 }
 
+bool HelioBackgroundProcess::is_source_plate() const
+{
+    const auto* plate = GUI::wxGetApp().plater()->get_partplate_list().get_curr_plate();
+    return plate && plate->id() == m_source_plate_id;
+}
+
+bool HelioBackgroundProcess::has_printer_changed() const
+{
+    return m_source_printer_preset != GUI::wxGetApp().preset_bundle->printers.get_selected_preset().name;
+}
+
+bool HelioBackgroundProcess::is_action_for_current_slice(std::uint64_t generation)
+{
+    if (!is_action_current(generation) || has_printer_changed())
+        return false;
+    const auto* plate = GUI::wxGetApp().plater()->get_partplate_list().get_curr_plate();
+    return plate && plate->id() == m_source_plate_id && plate->is_slice_result_valid() &&
+           plate->get_slice_invalid_epoch() == m_source_slice_epoch;
+}
+
 void HelioBackgroundProcess::set_state(State state)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -2400,6 +2426,24 @@ bool HelioBackgroundProcess::helio_thread_start(std::mutex&                     
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_thread.joinable())
         return false;
+
+    auto& plates = GUI::wxGetApp().plater()->get_partplate_list();
+    auto* plate = plates.get_curr_plate();
+    if (!plate || !m_gcode_result || !plate->get_gcode_result()) {
+        m_state = STATE_CANCELED;
+        return false;
+    }
+    const auto& source = *plate->get_gcode_result();
+    m_source_plate_id = plate->id();
+    m_source_slice_epoch = plate->get_slice_invalid_epoch();
+    m_source_printer_preset = GUI::wxGetApp().preset_bundle->printers.get_selected_preset().name;
+    m_source_origin = plates.get_current_plate_origin();
+    m_source_print_time = m_gcode_result->print_statistics.modes[0].time;
+    m_source_roles_times = m_gcode_result->print_statistics.modes[0].roles_times;
+    m_source_nozzle_group = source.nozzle_group_result;
+    m_source_filaments = source.used_filaments;
+    m_source_filament_changes = source.filament_change_sequence;
+    m_source_nozzle_changes = source.nozzle_change_sequence;
 
     const std::uint64_t generation = m_action_generation;
     m_state = STATE_STARTED;
@@ -2423,20 +2467,37 @@ bool HelioBackgroundProcess::helio_thread_start(std::mutex&                     
 
 void HelioBackgroundProcess::stop_current_helio_action()
 {
-    if (!current_simulation_result.id.empty()) {
-        HelioQuery::stop_simulation(helio_api_url, helio_api_key, current_simulation_result.id);
+    std::string simulation_id;
+    std::string optimization_id;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        simulation_id = current_simulation_result.id;
+        optimization_id = current_optimization_result.id;
     }
+    if (simulation_id.empty() && optimization_id.empty())
+        return;
 
-    if (!current_optimization_result.id.empty()) {
-        HelioQuery::stop_optimization(helio_api_url, helio_api_key, current_optimization_result.id);
-    }
+    const bool scheduled = helio_request_workers().start(
+        [api_url = helio_api_url, api_key = helio_api_key, simulation_id = std::move(simulation_id),
+         optimization_id = std::move(optimization_id)](const std::atomic_bool&) {
+            if (!simulation_id.empty())
+                HelioQuery::stop_simulation(api_url, api_key, simulation_id);
+            if (!optimization_id.empty())
+                HelioQuery::stop_optimization(api_url, api_key, optimization_id);
+        });
+    if (!scheduled)
+        BOOST_LOG_TRIVIAL(warning) << "Could not schedule Helio cancellation";
 }
 
 void HelioBackgroundProcess::feedback_current_helio_action(float rating, std::string commend)
 {
-    if (!current_optimization_result.id.empty()) {
-        HelioQuery::optimization_feedback(helio_api_url, helio_api_key, current_optimization_result.id, rating, commend);
+    std::string optimization_id;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        optimization_id = current_optimization_result.id;
     }
+    if (!optimization_id.empty())
+        HelioQuery::optimization_feedback(helio_api_url, helio_api_key, optimization_id, rating, commend);
 }
 
 void HelioBackgroundProcess::clear_helio_file_cache()
@@ -2519,7 +2580,8 @@ void HelioBackgroundProcess::helio_threaded_process_start(std::mutex&           
                     break;
                 }
                 upload_file_res = HelioQuery::upload_file_to_presigned_url(m_input_gcode_path,
-                                                                           create_presigned_url_res.url);
+                                                                           create_presigned_url_res.url,
+                                                                           [this]() { return was_canceled(); });
                 if (upload_file_res.success) {
                     upload_success = true;
                     break;
@@ -2615,8 +2677,18 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
         HelioQuery::CreateSimulationResult create_simulation_res =
             HelioQuery::create_simulation(helio_api_url, helio_api_key, gcode_id, simulation_input_data,
                                           std::string(), std::string(), [this]() { return was_canceled(); });
-        current_simulation_result = create_simulation_res;
-        current_optimization_result.reset();
+        bool canceled_before_registration;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            canceled_before_registration = helio_worker_generation != m_action_generation || m_state == STATE_CANCELED;
+            if (!canceled_before_registration)
+                current_simulation_result = create_simulation_res;
+        }
+        if (canceled_before_registration) {
+            if (!create_simulation_res.id.empty())
+                HelioQuery::stop_simulation(helio_api_url, helio_api_key, create_simulation_res.id);
+            return;
+        }
         // Clear previous stored result since we're starting a new simulation
         clear_last_simulation_result();
 
@@ -2697,14 +2769,14 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
                     wxQueueEvent(GUI::wxGetApp().plater(), evt);
                     if (check_simulation_progress_res.is_finished) {
                         // Start loading preview in background immediately (don't wait for dialog)
-                        int original_time_seconds = static_cast<int>(m_gcode_result->print_statistics.modes[0].time);
+                        int original_time_seconds = static_cast<int>(m_source_print_time);
                         std::string url = check_simulation_progress_res.thermal_index_gcode_url;
                         std::string filename = m_input_gcode_path;
                         HelioQuery::SimulationResult sim_result = check_simulation_progress_res.simulationResult;
 
                         // Store simulation result to current plate for later access (e.g., "View Summary" button)
                         GUI::wxGetApp().plater()->CallAfter([process = this, generation = helio_worker_generation, sim_result, original_time_seconds]() {
-                            if (!process->is_action_current(generation)) {
+                            if (!process->is_action_for_current_slice(generation)) {
                                 return;
                             }
                             auto* plate = GUI::wxGetApp().plater()->get_partplate_list().get_curr_plate();
@@ -2724,9 +2796,9 @@ void HelioBackgroundProcess::create_simulation_step(HelioQuery::CreateGCodeResul
 
                         // Show simulation results dialog on main thread (non-blocking for preview)
                         // Capture roles_times for calculating optimizable sections
-                        auto roles_times = m_gcode_result->print_statistics.modes[0].roles_times;
+                        auto roles_times = m_source_roles_times;
                         GUI::wxGetApp().plater()->CallAfter([process = this, generation = helio_worker_generation, sim_result, original_time_seconds, roles_times]() {
-                            if (!process->is_action_current(generation)) {
+                            if (!process->is_action_for_current_slice(generation)) {
                                 return;
                             }
                             GUI::HelioSimulationResultsDialog results_dlg(nullptr, sim_result, original_time_seconds, roles_times);
@@ -2803,8 +2875,18 @@ void HelioBackgroundProcess::create_optimization_step(HelioQuery::CreateGCodeRes
         HelioQuery::CreateOptimizationResult create_optimization_res =
             HelioQuery::create_optimization(helio_api_url, helio_api_key, gcode_id, optimization_input_data,
                                             std::string(), std::string(), [this]() { return was_canceled(); });
-        current_optimization_result = create_optimization_res;
-        current_simulation_result.reset();
+        bool canceled_before_registration;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            canceled_before_registration = helio_worker_generation != m_action_generation || m_state == STATE_CANCELED;
+            if (!canceled_before_registration)
+                current_optimization_result = create_optimization_res;
+        }
+        if (canceled_before_registration) {
+            if (!create_optimization_res.id.empty())
+                HelioQuery::stop_optimization(helio_api_url, helio_api_key, create_optimization_res.id);
+            return;
+        }
         // Clear previous stored result since we're starting a new optimization
         clear_last_simulation_result();
 
@@ -3041,21 +3123,19 @@ void HelioBackgroundProcess::load_helio_file_to_viewer(std::string file_path, st
     if (!is_action_current(helio_worker_generation)) {
         return;
     }
-    const Vec3d origin = GUI::wxGetApp().plater()->get_partplate_list().get_current_plate_origin();
-    auto old_result = GUI::wxGetApp().plater()->get_partplate_list().get_curr_plate()->get_gcode_result();
-    // auto old_group_result = GUI::wxGetApp().plater()->get_partplate_list().get_curr_plate()->get_gcode_result()->nozzle_group_result;
-    m_gcode_processor.set_xy_offset(origin(0), origin(1));
-    if (old_result && old_result->nozzle_group_result) {
-        m_gcode_processor.initialize_from_context(old_result->nozzle_group_result);
-    }
+    m_gcode_processor.set_xy_offset(m_source_origin(0), m_source_origin(1));
+    if (m_source_nozzle_group)
+        m_gcode_processor.initialize_from_context(m_source_nozzle_group);
     m_gcode_processor.process_file(file_path);
 
-    auto res       = &m_gcode_processor.result();
-    m_gcode_result = res;
-    m_gcode_result->nozzle_group_result = old_result->nozzle_group_result;
-    m_gcode_result->used_filaments = old_result->used_filaments;
-    m_gcode_result->filament_change_sequence = old_result->filament_change_sequence;
-    m_gcode_result->nozzle_change_sequence = old_result->nozzle_change_sequence;
+    if (!is_action_current(helio_worker_generation))
+        return;
+
+    m_gcode_result = &m_gcode_processor.result();
+    m_gcode_result->nozzle_group_result = m_source_nozzle_group;
+    m_gcode_result->used_filaments = m_source_filaments;
+    m_gcode_result->filament_change_sequence = m_source_filament_changes;
+    m_gcode_result->nozzle_change_sequence = m_source_nozzle_changes;
 
     set_state(STATE_FINISHED);
 

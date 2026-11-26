@@ -14826,6 +14826,7 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
     if (invalidated == Print::APPLY_STATUS_INVALIDATED) {
         //BBS: update current plater's slicer result to invalid
         this->background_process.get_current_plate()->update_slice_result_valid_state(false);
+        q->stop_helio_process();
 
         //no need, should be done in background_process.apply
         //this->background_process.get_current_gcode_result()->reset();
@@ -16511,7 +16512,7 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
 
 void Plater::priv::on_slicing_update(SlicingStatusEvent &evt)
 {
-    if (evt.status.is_helio && !helio_background_process.is_action_current(evt.generation)) {
+    if (evt.status.is_helio && !helio_background_process.is_action_for_current_slice(evt.generation)) {
         return;
     }
     BOOST_LOG_TRIVIAL(debug) << boost::format("event_type %1%, percent %2%, text %3%") % evt.GetEventType() % evt.status.percent % evt.status.text;
@@ -19248,7 +19249,7 @@ int Plater::priv::update_helio_background_process_once(std::string& printer_id,
 
 void Plater::priv::on_helio_processing_complete(HelioCompletionEvent &a)
 {
-    if (!helio_background_process.is_action_current(a.generation))
+    if (!helio_background_process.is_action_for_current_slice(a.generation))
         return;
     PartPlate* plate = partplate_list.get_curr_plate();
     if (!a.is_successful) {
@@ -19256,7 +19257,7 @@ void Plater::priv::on_helio_processing_complete(HelioCompletionEvent &a)
         notification_manager->push_helio_error_notification(a.error_message);
         return;
     }
-    if (!plate || !helio_background_process.m_gcode_result)
+    if (!plate || background_process.get_current_plate() != plate || !helio_background_process.m_gcode_result)
         return;
     const float original_time = plate->get_slice_result()->print_statistics.modes[0].time;
     this->reset_gcode_toolpaths();
@@ -19286,7 +19287,7 @@ void Plater::priv::on_helio_processing_complete(HelioCompletionEvent &a)
 
 void Plater::priv::on_helio_processing_start(HelioActionEvent &a)
 {
-    if (!helio_background_process.is_action_current(a.generation)) {
+    if (!helio_background_process.is_action_for_current_slice(a.generation)) {
         return;
     }
     notification_manager->close_notification_of_type(GUI::NotificationType::SignDetected);
@@ -19298,9 +19299,16 @@ void Plater::priv::on_helio_processing_start(HelioActionEvent &a)
 //BBS: GUI refactor: slice with helio
 void Plater::priv::on_helio_process(const PartPlate* expected_plate)
 {
-    auto helio_launch_allowed = [this, expected_plate]() {
+    if (!expected_plate || partplate_list.get_curr_plate() != expected_plate)
+        return;
+
+    const auto source_slice_epoch = expected_plate->get_slice_invalid_epoch();
+    const auto source_printer = wxGetApp().preset_bundle->printers.get_selected_preset().name;
+    auto helio_launch_allowed = [this, expected_plate, source_slice_epoch, &source_printer]() {
         const PartPlate* current_plate = partplate_list.get_curr_plate();
         return current_plate != nullptr && current_plate == expected_plate &&
+               current_plate->get_slice_invalid_epoch() == source_slice_epoch &&
+               wxGetApp().preset_bundle->printers.get_selected_preset().name == source_printer &&
                current_plate->is_slice_result_valid() && current_plate->can_slice() &&
                !q->only_gcode_mode() && !q->using_exported_file() &&
                !sidebar->has_broken_mixed_filament(current_plate) &&
@@ -20346,9 +20354,7 @@ void Plater::priv::init_notification_manager()
             res1 = false;
 
         else {
-            this->helio_background_process.stop_current_helio_action();
-            this->helio_background_process.stop();
-            if (auto* plate = partplate_list.get_curr_plate()) plate->restore_staged_helio_result();
+            q->stop_helio_process();
             res1 = true;
             notification_manager->set_slicing_progress_hidden();
         }
@@ -28195,16 +28201,18 @@ void Plater::reslice()
 
 void Plater::stop_helio_process()
 {
-    if (p->helio_background_process.is_running()) {
-        p->helio_background_process.clear_helio_file_cache();
-        // Restore the last completed result when canceling a replacement.
-        if (auto* plate = p->partplate_list.get_curr_plate()) {
-            plate->restore_staged_helio_result();
-        }
-        p->helio_background_process.reset();
-        p->helio_background_process.stop_current_helio_action();
-        p->helio_background_process.stop();
-    }
+    auto& helio = p->helio_background_process;
+    const auto state = helio.get_state();
+    const bool running = state == HelioBackgroundProcess::STATE_STARTED || state == HelioBackgroundProcess::STATE_RUNNING;
+    // A finished worker can still have a completion event waiting on the UI thread.
+    if (!running && state != HelioBackgroundProcess::STATE_FINISHED)
+        return;
+
+    helio.reset(); // Invalidate queued events before any server request.
+    if (helio.is_source_plate())
+        p->partplate_list.get_curr_plate()->restore_staged_helio_result();
+    if (running)
+        helio.stop_current_helio_action();
 }
 
 void Plater::feedback_helio_process(float rating, std::string commend)
@@ -29098,6 +29106,20 @@ void Plater::on_config_change(const DynamicPrintConfig &config)
     bool bed_shape_changed = false;
     //bool print_sequence_changed = false;
     t_config_option_keys diff_keys = p->config->diff(config);
+    const auto helio_state = p->helio_background_process.get_state();
+    if (helio_state == HelioBackgroundProcess::STATE_STARTED ||
+        helio_state == HelioBackgroundProcess::STATE_RUNNING ||
+        helio_state == HelioBackgroundProcess::STATE_FINISHED) {
+        const bool printer_changed = p->helio_background_process.has_printer_changed() ||
+            std::any_of(diff_keys.begin(), diff_keys.end(), [](const auto& key) {
+                return key == "printer_model" || key == "printer_variant" ||
+                       key == "printer_technology" || key == "nozzle_diameter";
+            });
+        if (printer_changed) {
+            stop_helio_process();
+            p->partplate_list.invalid_all_slice_result();
+        }
+    }
 
     size_t old_nozzle_size = 1, new_nozzle_size = 1;
     auto * opt_old = p->config->option<ConfigOptionFloatsNullable>("nozzle_diameter");

@@ -20,6 +20,7 @@
 #include <chrono>
 
 #include "PrintHost.hpp"
+#include "libslic3r/ObjectID.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "nlohmann/json.hpp"
 #include "../GUI/BackgroundSlicingProcess.hpp"
@@ -302,7 +303,8 @@ public:
     static void request_pat_token(std::function<void(std::string)> func);
     static void optimization_feedback(const std::string helio_api_url, const std::string helio_api_key, std::string optimization_id, float rating, std::string comment);
     static PresignedURLResult create_presigned_url(const std::string helio_api_url, const std::string helio_api_key);
-    static UploadFileResult   upload_file_to_presigned_url(const std::string file_path_string, const std::string upload_url);
+    static UploadFileResult   upload_file_to_presigned_url(const std::string file_path_string, const std::string upload_url,
+                                                               const std::function<bool()>& is_canceled = {});
 
     static PollResult poll_gcode_status(const std::string& helio_api_url,
                                         const std::string& helio_api_key,
@@ -480,6 +482,18 @@ private:
     State         m_state { STATE_INITIAL };
     std::uint64_t m_action_generation { 0 };
     bool          m_worker_completed { true };
+
+    // Captured on the UI thread before the worker starts.
+    ObjectID      m_source_plate_id;
+    size_t        m_source_slice_epoch { 0 };
+    std::string   m_source_printer_preset;
+    Vec3d         m_source_origin { Vec3d::Zero() };
+    float         m_source_print_time { 0.f };
+    decltype(PrintEstimatedStatistics::Mode::roles_times) m_source_roles_times;
+    decltype(GCodeProcessorResult::nozzle_group_result) m_source_nozzle_group;
+    decltype(GCodeProcessorResult::used_filaments) m_source_filaments;
+    decltype(GCodeProcessorResult::filament_change_sequence) m_source_filament_changes;
+    decltype(GCodeProcessorResult::nozzle_change_sequence) m_source_nozzle_changes;
 public:
     std::mutex              m_mutex;
     std::condition_variable m_condition;
@@ -563,6 +577,10 @@ public:
 
     bool was_canceled();
     bool is_action_current(std::uint64_t generation);
+    // UI-thread checks for queued results and printer changes.
+    bool is_source_plate() const;
+    bool has_printer_changed() const;
+    bool is_action_for_current_slice(std::uint64_t generation);
 
 
     void set_state(State state);
